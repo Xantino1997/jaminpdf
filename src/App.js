@@ -14,41 +14,69 @@ function App() {
     const form = doc.getForm();
     const pageCount = doc.getPageCount();
     const pages = [];
-    const territories = [];
     
-    for (let i = 1; i <= 5; i++) {
-      try {
-        const field = form.getTextField(`Terr_${i}`);
-        const value = field.getText();
-        if (value && value.trim() !== "") {
-          const num = parseInt(value.trim());
-          if (!isNaN(num)) {
-            territories.push(num);
-          } else {
-            territories.push(null);
+    // Para cada página, extraer los territorios de esa página específica
+    for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
+      const pageTerritories = [];
+      
+      // Intentar leer los 5 campos Terr_ de cada página
+      for (let i = 1; i <= 5; i++) {
+        try {
+          const field = form.getTextField(`Terr_${i}`);
+          const widgets = field.acroField.getWidgets();
+          
+          // Verificar si este campo está en la página actual
+          for (const widget of widgets) {
+            const widgetPageRef = widget.P();
+            if (!widgetPageRef) continue;
+            
+            const pdfPages = doc.getPages();
+            const widgetPageIndex = pdfPages.findIndex(page => page.ref === widgetPageRef);
+            
+            if (widgetPageIndex === pageNum - 1) {
+              const value = field.getText();
+              if (value && value.trim() !== "") {
+                const num = parseInt(value.trim());
+                if (!isNaN(num)) {
+                  pageTerritories.push(num);
+                } else {
+                  pageTerritories.push(null);
+                }
+              } else {
+                pageTerritories.push(null);
+              }
+              break;
+            }
           }
-        } else {
-          territories.push(null);
+        } catch (e) {
+          // Si no existe el campo, agregar null
         }
-      } catch (e) {
-        territories.push(null);
       }
-    }
-    
-    const validTerritories = territories.filter(t => t !== null);
-    
-    if (validTerritories.length > 0) {
-      for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
-        const offset = (pageNum - 1) * 5;
-        const pageTerritories = validTerritories.map(t => t + offset);
-        const minTerr = Math.min(...pageTerritories);
-        const maxTerr = Math.max(...pageTerritories);
+      
+      // Filtrar territorios válidos de esta página
+      const validTerritories = pageTerritories.filter(t => t !== null);
+      
+      if (validTerritories.length > 0) {
+        const minTerr = Math.min(...validTerritories);
+        const maxTerr = Math.max(...validTerritories);
         
         pages.push({
           index: pageNum - 1,
           pdfPage: pageNum,
-          territories: pageTerritories,
+          territories: validTerritories,
           label: `${minTerr}-${maxTerr}`
+        });
+      } else {
+        // Si el PDF está vacío, crear territorios por defecto
+        const baseNum = (pageNum - 1) * 5 + 1;
+        const defaultTerritories = [baseNum, baseNum + 1, baseNum + 2, baseNum + 3, baseNum + 4];
+        
+        pages.push({
+          index: pageNum - 1,
+          pdfPage: pageNum,
+          territories: defaultTerritories,
+          label: `${defaultTerritories[0]}-${defaultTerritories[4]}`,
+          isEmpty: true
         });
       }
     }
@@ -150,6 +178,39 @@ function App() {
     }));
   };
 
+  const handleTerritoryChange = (fieldName, value) => {
+    // Actualizar el campo normalmente
+    handleChange(fieldName, value);
+    
+    // Si cambió un campo Terr_, recalcular territorios
+    if (fieldName.startsWith("Terr_")) {
+      setTimeout(async () => {
+        if (pdfDoc) {
+          // Crear una copia temporal del documento para recalcular
+          const form = pdfDoc.getForm();
+          
+          // Aplicar todos los cambios actuales
+          Object.entries(fieldsByPage).forEach(([page, fields]) => {
+            Object.entries(fields).forEach(([name, val]) => {
+              try {
+                form.getTextField(name).setText(val);
+              } catch {}
+            });
+          });
+          
+          // Aplicar el nuevo valor
+          try {
+            form.getTextField(fieldName).setText(value);
+          } catch {}
+          
+          // Recalcular territorios
+          const pages = extractTerritoriesFromPDF(pdfDoc);
+          setAvailablePages(pages);
+        }
+      }, 100);
+    }
+  };
+
   const savePdf = async () => {
     if (!pdfDoc) return;
 
@@ -168,6 +229,10 @@ function App() {
     
     const newDoc = await PDFDocument.load(bytes);
     setPdfDoc(newDoc);
+    
+    // Recalcular territorios después de guardar
+    const pages = extractTerritoriesFromPDF(newDoc);
+    setAvailablePages(pages);
     
     const allPageFields = {};
     for (let i = 1; i <= newDoc.getPageCount(); i++) {
@@ -333,18 +398,16 @@ function App() {
     if (fieldName.startsWith("Terr_")) {
       const columnaEnPDF = parseInt(fieldName.split("_")[1]);
       
-      if (columnaEnPDF < 1 || columnaEnPDF > currentPage.territories.length) {
+      if (columnaEnPDF < 1 || columnaEnPDF > 5) {
         return null;
       }
-      
-      const territorioReal = currentPage.territories[columnaEnPDF - 1];
 
       return {
-        label: `Territorio ${territorioReal}`,
+        label: `Territorio ${columnaEnPDF}`,
         category: "territorio",
         columna: columnaEnPDF,
-        territorioReal,
-        orden: 1000 + columnaEnPDF,
+        territorioReal: currentPage.territories[columnaEnPDF - 1] || columnaEnPDF,
+        orden: columnaEnPDF, // CAMBIO: ordenar por columna (1, 2, 3, 4, 5)
       };
     }
 
@@ -360,7 +423,7 @@ function App() {
       const territorioReal = currentPage.territories[columnaEnPDF - 1];
 
       return {
-        label: `Conductor - Fila ${fila}`,
+        label: `Conduce`,
         category: `territorio${territorioReal}`,
         columna: columnaEnPDF,
         fila,
@@ -383,7 +446,7 @@ function App() {
       const territorioReal = currentPage.territories[columnaEnPDF - 1];
 
       return {
-        label: `${tipo} - Fila ${fila}`,
+        label: tipo === "Entrega" ? `Fecha entrega` : `Fecha devolución`,
         category: `territorio${territorioReal}`,
         columna: columnaEnPDF,
         fila,
@@ -393,7 +456,7 @@ function App() {
       };
     }
 
-    return { label: fieldName, category: "otros", orden: 0 };
+    return { label: fieldName, category: "otros", orden: 9999 };
   };
 
   const currentFields = fieldsByPage[currentPDFPage] || {};
@@ -477,7 +540,7 @@ function App() {
                 
                 return (
                   <button
-                    key={terrNum}
+                    key={`${page.pdfPage}-${terrNum}`}
                     onClick={() => {
                       setCurrentPDFPage(page.pdfPage);
                       setSelectedTerritory(terrNum);
@@ -584,6 +647,70 @@ function App() {
               marginBottom: 20,
               paddingRight: 8
             }}>
+              {/* HEADERS PRIMERO - Número de Territorio */}
+              {fieldsByCategory.territorio && (
+                <div 
+                  style={{ marginBottom: 20 }}
+                  id="territory-header"
+                >
+                  <h4 style={{
+                    fontSize: "12px",
+                    fontWeight: "700",
+                    color: "#1e293b",
+                    margin: "0 0 10px 0",
+                    padding: "6px 10px",
+                    background: "linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)",
+                    borderRadius: "6px",
+                    borderLeft: "3px solid #f59e0b"
+                  }}>
+                    🔢 Número de Territorio (Header)
+                  </h4>
+                  <div style={{
+                    display: "grid",
+                    gridTemplateColumns: isMobile 
+                      ? "1fr" 
+                      : "repeat(5, 1fr)",
+                    gap: "10px"
+                  }}>
+                    {fieldsByCategory.territorio
+                      .sort((a, b) => a.columna - b.columna) // ORDENAR por columna 1, 2, 3, 4, 5
+                      .map((field) => (
+                      <div key={field.name}>
+                        <label style={{
+                          display: "block",
+                          fontSize: "10px",
+                          fontWeight: "600",
+                          color: "#64748b",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.5px",
+                          marginBottom: 5
+                        }}>
+                          {field.label}
+                        </label>
+                        <input
+                          type="number"
+                          value={currentFields[field.name] || ""}
+                          onChange={(e) => handleTerritoryChange(field.name, e.target.value)}
+                          placeholder={`Número ${field.columna}`}
+                          style={{ 
+                            width: "100%", 
+                            padding: "8px 10px",
+                            border: "1px solid #cbd5e1",
+                            borderRadius: "6px",
+                            fontSize: "13px",
+                            outline: "none",
+                            transition: "all 0.2s",
+                            background: "#fffbeb",
+                            boxSizing: "border-box"
+                          }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* DATOS GENERALES */}
               {fieldsByCategory.otros && (
                 <div style={{ marginBottom: 20 }}>
                   <h4 style={{
@@ -632,6 +759,7 @@ function App() {
                 </div>
               )}
 
+              {/* TERRITORIOS */}
               {currentTerritories.map(terrNum => {
                 const categoryKey = `territorio${terrNum}`;
                 if (!fieldsByCategory[categoryKey]) return null;
@@ -648,7 +776,7 @@ function App() {
                     <h4 style={{
                       fontSize: "12px",
                       fontWeight: "700",
-                      color: "#1e293b",
+                      color: selectedTerritory === terrNum ? "white" : "#1e293b",
                       margin: "0 0 10px 0",
                       padding: "6px 10px",
                       background: selectedTerritory === terrNum
@@ -676,7 +804,7 @@ function App() {
                         <input
                           value={currentFields[field.name] || ""}
                           onChange={(e) => handleChange(field.name, e.target.value)}
-                          placeholder={field.tipo ? `Fecha de ${field.tipo.toLowerCase()}` : "Nombre del conductor"}
+                          placeholder="Nombre del conductor"
                           style={{ 
                             width: "100%", 
                             padding: "8px 10px",
@@ -694,65 +822,6 @@ function App() {
                   </div>
                 );
               })}
-
-              {fieldsByCategory.territorio && (
-                <div 
-                  style={{ marginBottom: 20 }}
-                  id="territory-header"
-                >
-                  <h4 style={{
-                    fontSize: "12px",
-                    fontWeight: "700",
-                    color: "#1e293b",
-                    margin: "0 0 10px 0",
-                    padding: "6px 10px",
-                    background: "linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)",
-                    borderRadius: "6px",
-                    borderLeft: "3px solid #f59e0b"
-                  }}>
-                    🔢 Número de Territorio (Header)
-                  </h4>
-                  <div style={{
-                    display: "grid",
-                    gridTemplateColumns: isMobile 
-                      ? "1fr" 
-                      : "repeat(auto-fit, minmax(150px, 1fr))",
-                    gap: "10px"
-                  }}>
-                    {fieldsByCategory.territorio.map((field) => (
-                      <div key={field.name}>
-                        <label style={{
-                          display: "block",
-                          fontSize: "10px",
-                          fontWeight: "600",
-                          color: "#64748b",
-                          textTransform: "uppercase",
-                          letterSpacing: "0.5px",
-                          marginBottom: 5
-                        }}>
-                          {field.label}
-                        </label>
-                        <input
-                          value={currentFields[field.name] || ""}
-                          onChange={(e) => handleChange(field.name, e.target.value)}
-                          placeholder={`Número ${field.territorioReal}`}
-                          style={{ 
-                            width: "100%", 
-                            padding: "8px 10px",
-                            border: "1px solid #cbd5e1",
-                            borderRadius: "6px",
-                            fontSize: "13px",
-                            outline: "none",
-                            transition: "all 0.2s",
-                            background: "#fffbeb",
-                            boxSizing: "border-box"
-                          }}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
 
             <button 
