@@ -319,7 +319,6 @@ function App() {
   };
 
   const getFieldInfo = (fieldName) => {
-    const FILAS = 6;
     const COLUMNAS = 5;
 
     if (availablePages.length === 0) {
@@ -655,7 +654,6 @@ function App() {
                       background: selectedTerritory === terrNum
                         ? "linear-gradient(135deg, #2563eb 0%, #1e40af 100%)"
                         : "linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)",
-                      color: selectedTerritory === terrNum ? "white" : "#1e293b",
                       borderRadius: "6px",
                       borderLeft: "3px solid #2563eb",
                       transition: "all 0.3s"
