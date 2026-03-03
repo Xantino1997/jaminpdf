@@ -69,7 +69,7 @@ const fmtDate = (v) => {
 // ── Parsear dd/mm/aa o dd/mm/aaaa → yyyy-mm-dd ───────────────────────────────
 const parseDate = (s) => {
   if (!s) return "";
-  const parts = s.trim().replace(/[.\-]/g, "/").split("/");
+  const parts = s.trim().replace(/[.-]/g, "/").split("/");
   if (parts.length !== 3) return "";
   let [d, m, y] = parts;
   if (y.length === 2) y = "20" + y;
