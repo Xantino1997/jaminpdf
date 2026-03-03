@@ -46,16 +46,6 @@ const ROW_H        = 32;   // altura total de cada fila (nombre+fechas)
 const NAME_H       = 16;   // altura de la sub-línea de nombre
 const DATE_H       = 16;   // altura de la sub-línea de fechas
 
-// Genera las posiciones Y (desde arriba) para cada fila
-const getRowY = (rowIdx) => ({
-  nameTop: FIRST_NAME_Y + rowIdx * ROW_H,
-  dateTop: FIRST_NAME_Y + rowIdx * ROW_H + NAME_H,
-});
-
-// Convierte y-desde-arriba a y-pdflib (y=0 abajo)
-const toPdfY = (yFromTop, bandH, fontSize) =>
-  PDF_H - yFromTop - bandH / 2 + fontSize / 2 - 1;
-
 // ── Posiciones X (centros de cada columna, coordenadas pdf-lib) ──────────────
 // Ajustá estos valores si el texto no cae en la columna correcta.
 // Abrí el PDF en Adobe/Chrome y usá "Propiedades" para ver tamaño de página.
