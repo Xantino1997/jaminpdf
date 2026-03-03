@@ -1,9 +1,15 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 
 const PDF_URL = "/mnt/user-data/uploads/S-13_S.pdf";
+const DEFAULT_ROWS = 20;
 
-// Usamos pdf-lib via CDN en el navegador
-// Este componente carga el PDF, detecta los campos del formulario y permite editarlos
+const makeEmptyRow = () => ({
+  num: "", ultima: "",
+  a1: "", c1: "",
+  a2: "", c2: "",
+  a3: "", c3: "",
+  a4: "", c4: "",
+});
 
 export default function App() {
   const [pdfUrl, setPdfUrl] = useState(null);
@@ -14,66 +20,47 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const pdfBytesRef = useRef(null);
 
-  const DEFAULT_ROWS = 20;
-
   const showToast = (msg, type = "success") => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 2500);
   };
-
-  const makeEmptyRow = () => ({
-    num: "",
-    ultima: "",
-    a1: "", c1: "",
-    a2: "", c2: "",
-    a3: "", c3: "",
-    a4: "", c4: "",
-  });
-
-  // Cargar el PDF original para preview
-  useEffect(() => {
-    const loadPDF = async () => {
-      try {
-        setLoading(true);
-        // Intentar cargar el PDF del servidor
-        const res = await fetch(PDF_URL);
-        if (!res.ok) throw new Error("No se pudo cargar el PDF");
-        const bytes = await res.arrayBuffer();
-        pdfBytesRef.current = bytes;
-
-        const blob = new Blob([bytes], { type: "application/pdf" });
-        const url = URL.createObjectURL(blob);
-        setPdfUrl(url);
-      } catch (e) {
-        // Si no puede cargar el PDF, igual mostramos el formulario
-        console.warn("PDF no disponible para preview:", e);
-        setError("Vista previa del PDF no disponible, pero podés editar los datos abajo.");
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadPDF();
-
-    // Cargar datos guardados
-    try {
-      const saved = localStorage.getItem("s13s_v2");
-      if (saved) {
-        const data = JSON.parse(saved);
-        setRows(data.rows || initRows());
-        setYear(data.year || "");
-        return;
-      }
-    } catch {}
-    setRows(initRows());
-  }, []);
-
-  const initRows = () => Array.from({ length: DEFAULT_ROWS }, makeEmptyRow);
 
   const saveLocal = (newRows, newYear) => {
     try {
       localStorage.setItem("s13s_v2", JSON.stringify({ rows: newRows, year: newYear }));
     } catch {}
   };
+
+  useEffect(() => {
+    const loadPDF = async () => {
+      try {
+        setLoading(true);
+        const res = await fetch(PDF_URL);
+        if (!res.ok) throw new Error("No se pudo cargar el PDF");
+        const bytes = await res.arrayBuffer();
+        pdfBytesRef.current = bytes;
+        const blob = new Blob([bytes], { type: "application/pdf" });
+        setPdfUrl(URL.createObjectURL(blob));
+      } catch (e) {
+        console.warn("PDF no disponible para preview:", e);
+        setError("Vista previa no disponible. Podés cargar el PDF manualmente.");
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadPDF();
+
+    try {
+      const saved = localStorage.getItem("s13s_v2");
+      if (saved) {
+        const data = JSON.parse(saved);
+        setRows(data.rows || Array.from({ length: DEFAULT_ROWS }, makeEmptyRow));
+        setYear(data.year || "");
+        return;
+      }
+    } catch {}
+    setRows(Array.from({ length: DEFAULT_ROWS }, makeEmptyRow));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleRowChange = (idx, field, value) => {
     const updated = rows.map((r, i) => i === idx ? { ...r, [field]: value } : r);
@@ -101,7 +88,7 @@ export default function App() {
 
   const clearAll = () => {
     if (!window.confirm("¿Limpiar todos los datos?")) return;
-    const fresh = initRows();
+    const fresh = Array.from({ length: DEFAULT_ROWS }, makeEmptyRow);
     setRows(fresh);
     setYear("");
     saveLocal(fresh, "");
@@ -109,7 +96,7 @@ export default function App() {
   };
 
   const exportCSV = () => {
-    const header = "Num.Terr.,Ultima fecha,Asignado1-Fecha,Asignado1-Completó,Asignado2-Fecha,Asignado2-Completó,Asignado3-Fecha,Asignado3-Completó,Asignado4-Fecha,Asignado4-Completó";
+    const header = "Num.Terr.,Ultima fecha,Asignado1-Fecha,Asignado1-Completo,Asignado2-Fecha,Asignado2-Completo,Asignado3-Fecha,Asignado3-Completo,Asignado4-Fecha,Asignado4-Completo";
     const lines = rows.map(r =>
       [r.num, r.ultima, r.a1, r.c1, r.a2, r.c2, r.a3, r.c3, r.a4, r.c4]
         .map(v => `"${(v || "").replace(/"/g, '""')}"`)
@@ -120,7 +107,7 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `S-13-S_${year || "sin-año"}.csv`;
+    a.download = `S-13-S_${year || "sin-anno"}.csv`;
     a.click();
     URL.revokeObjectURL(url);
     showToast("CSV exportado");
@@ -129,9 +116,9 @@ export default function App() {
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    const url = URL.createObjectURL(file);
-    setPdfUrl(url);
-    showToast("PDF cargado para preview");
+    setPdfUrl(URL.createObjectURL(file));
+    setError(null);
+    showToast("PDF cargado");
   };
 
   const filledRows = rows.filter(r => r.num || r.ultima || r.a1 || r.a2 || r.a3 || r.a4);
@@ -147,29 +134,28 @@ export default function App() {
         boxShadow: "0 2px 8px rgba(0,0,0,0.3)"
       }}>
         <div>
-          <div style={{ fontWeight: 700, fontSize: 16, letterSpacing: 1 }}>S-13-S · Registro de Asignación de Territorio</div>
+          <div style={{ fontWeight: 700, fontSize: 16, letterSpacing: 1 }}>S-13-S · Registro de Asignacion de Territorio</div>
           <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>
-            {filledRows.length} de {rows.length} filas con datos · guardado automático
+            {filledRows.length} de {rows.length} filas con datos · guardado automatico
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <label style={btnStyle("#334155")}>
-            📂 Cargar PDF
+            Cargar PDF
             <input type="file" accept=".pdf" onChange={handleFileUpload} style={{ display: "none" }} />
           </label>
-          <button onClick={exportCSV} style={btnStyle("#1d4ed8")}>📊 CSV</button>
-          <button onClick={() => window.print()} style={btnStyle("#374151")}>🖨️ Imprimir</button>
-          <button onClick={clearAll} style={btnStyle("#991b1b")}>🗑️ Limpiar</button>
+          <button onClick={exportCSV} style={btnStyle("#1d4ed8")}>CSV</button>
+          <button onClick={() => window.print()} style={btnStyle("#374151")}>Imprimir</button>
+          <button onClick={clearAll} style={btnStyle("#991b1b")}>Limpiar</button>
         </div>
       </div>
 
       <div style={{ maxWidth: 1400, margin: "0 auto", padding: "20px 16px 60px" }}>
-        {/* Dos columnas: formulario + preview */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 420px", gap: 20, alignItems: "start" }}>
 
           {/* ===== FORMULARIO ===== */}
           <div>
-            {/* Año */}
+            {/* Encabezado año */}
             <div style={{
               background: "#fff", borderRadius: 10, padding: "16px 20px",
               marginBottom: 16, border: "1px solid #e2e8f0",
@@ -177,7 +163,7 @@ export default function App() {
               display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap"
             }}>
               <div style={{ fontSize: 18, fontWeight: 700, color: "#1e293b" }}>
-                Registro de Asignación de Territorio
+                Registro de Asignacion de Territorio
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
                 <label style={{ fontSize: 12, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: 1 }}>
@@ -198,14 +184,14 @@ export default function App() {
               </div>
             </div>
 
-            {/* Info */}
+            {/* Nota */}
             <div style={{
               background: "#eff6ff", border: "1px solid #bfdbfe", borderLeft: "4px solid #3b82f6",
               borderRadius: 8, padding: "8px 14px", marginBottom: 14,
               fontSize: 12, color: "#1e40af", lineHeight: 1.5
             }}>
-              ✏️ Hacé clic en cualquier celda para editar. Los datos se guardan automáticamente.
-              &nbsp;·&nbsp; * Al comenzar nueva página, anotá la última fecha en que se completó cada territorio.
+              Hace clic en cualquier celda para editar. Los datos se guardan automaticamente en el navegador.
+              &nbsp;&middot;&nbsp; * Al comenzar nueva pagina, anota la ultima fecha en que se completo cada territorio.
             </div>
 
             {/* Tabla */}
@@ -217,8 +203,8 @@ export default function App() {
                 <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 860 }}>
                   <thead>
                     <tr>
-                      <th rowSpan={2} style={thMain({ width: 56 })}>Núm.<br/>terr.</th>
-                      <th rowSpan={2} style={thMain({ width: 90 })}>Última<br/>fecha *</th>
+                      <th rowSpan={2} style={thMain({ width: 56 })}>Num.<br/>terr.</th>
+                      <th rowSpan={2} style={thMain({ width: 90 })}>Ultima<br/>fecha *</th>
                       <th colSpan={2} style={thMain({ borderLeft: "2px solid #3a4a6b" })}>Asignado a</th>
                       <th colSpan={2} style={thMain({ borderLeft: "2px solid #3a4a6b" })}>Asignado a</th>
                       <th colSpan={2} style={thMain({ borderLeft: "2px solid #3a4a6b" })}>Asignado a</th>
@@ -226,69 +212,59 @@ export default function App() {
                       <th rowSpan={2} style={{ background: "#1a2332", width: 28 }}></th>
                     </tr>
                     <tr>
-                      {[1,2,3,4].map(g => (
-                        <>
-                          <th key={`a${g}`} style={thSub({ borderLeft: g > 1 ? "2px solid #3a4a6b" : undefined })}>Fecha asignó</th>
-                          <th key={`c${g}`} style={thSub()}>Fecha completó</th>
-                        </>
-                      ))}
+                      <th style={thSub()}>Fecha asigno</th>
+                      <th style={thSub()}>Fecha completo</th>
+                      <th style={thSub({ borderLeft: "2px solid #3a4a6b" })}>Fecha asigno</th>
+                      <th style={thSub()}>Fecha completo</th>
+                      <th style={thSub({ borderLeft: "2px solid #3a4a6b" })}>Fecha asigno</th>
+                      <th style={thSub()}>Fecha completo</th>
+                      <th style={thSub({ borderLeft: "2px solid #3a4a6b" })}>Fecha asigno</th>
+                      <th style={thSub()}>Fecha completo</th>
                     </tr>
                   </thead>
                   <tbody>
                     {rows.map((row, idx) => (
                       <tr key={idx} style={{
                         background: idx % 2 === 0 ? "#fff" : "#f8fafc",
-                        borderBottom: "1px solid #e8edf3",
-                        transition: "background 0.1s"
+                        borderBottom: "1px solid #e8edf3"
                       }}>
                         <td style={td()}><input style={cellInput("num")} value={row.num} onChange={e => handleRowChange(idx, "num", e.target.value)} placeholder="#" /></td>
                         <td style={td()}><input style={cellInput("last")} value={row.ultima} onChange={e => handleRowChange(idx, "ultima", e.target.value)} placeholder="dd/mm/aaaa" /></td>
-
                         <td style={td({ borderLeft: "2px solid #bfdbfe" })}><input type="date" style={cellInput("date")} value={row.a1} onChange={e => handleRowChange(idx, "a1", e.target.value)} /></td>
                         <td style={td()}><input type="date" style={cellInput("date")} value={row.c1} onChange={e => handleRowChange(idx, "c1", e.target.value)} /></td>
-
                         <td style={td({ borderLeft: "2px solid #bfdbfe" })}><input type="date" style={cellInput("date")} value={row.a2} onChange={e => handleRowChange(idx, "a2", e.target.value)} /></td>
                         <td style={td()}><input type="date" style={cellInput("date")} value={row.c2} onChange={e => handleRowChange(idx, "c2", e.target.value)} /></td>
-
                         <td style={td({ borderLeft: "2px solid #bfdbfe" })}><input type="date" style={cellInput("date")} value={row.a3} onChange={e => handleRowChange(idx, "a3", e.target.value)} /></td>
                         <td style={td()}><input type="date" style={cellInput("date")} value={row.c3} onChange={e => handleRowChange(idx, "c3", e.target.value)} /></td>
-
                         <td style={td({ borderLeft: "2px solid #bfdbfe" })}><input type="date" style={cellInput("date")} value={row.a4} onChange={e => handleRowChange(idx, "a4", e.target.value)} /></td>
                         <td style={td()}><input type="date" style={cellInput("date")} value={row.c4} onChange={e => handleRowChange(idx, "c4", e.target.value)} /></td>
-
                         <td style={{ ...td(), width: 28, padding: "2px 4px" }}>
-                          <button onClick={() => deleteRow(idx)} title="Eliminar" style={{
-                            background: "none", border: "none", color: "#cbd5e1",
-                            cursor: "pointer", fontSize: 14, padding: "3px 5px",
-                            borderRadius: 4, transition: "color 0.15s"
-                          }}
-                            onMouseOver={e => e.target.style.color = "#ef4444"}
-                            onMouseOut={e => e.target.style.color = "#cbd5e1"}
-                          >✕</button>
+                          <button
+                            onClick={() => deleteRow(idx)}
+                            title="Eliminar"
+                            style={{ background: "none", border: "none", color: "#cbd5e1", cursor: "pointer", fontSize: 14, padding: "3px 5px", borderRadius: 4 }}
+                          >x</button>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              <button onClick={addRow} style={{
-                width: "100%", padding: 10,
-                background: "#f8fafc", border: "none",
-                borderTop: "2px dashed #e2e8f0",
-                color: "#94a3b8", fontSize: 13, fontWeight: 600,
-                cursor: "pointer", letterSpacing: 1,
-                borderRadius: "0 0 10px 10px",
-                transition: "all 0.15s"
-              }}
-                onMouseOver={e => { e.target.style.background = "#eff6ff"; e.target.style.color = "#3b82f6"; }}
-                onMouseOut={e => { e.target.style.background = "#f8fafc"; e.target.style.color = "#94a3b8"; }}
+              <button
+                onClick={addRow}
+                style={{
+                  width: "100%", padding: 10, background: "#f8fafc", border: "none",
+                  borderTop: "2px dashed #e2e8f0", color: "#94a3b8", fontSize: 13,
+                  fontWeight: 600, cursor: "pointer", letterSpacing: 1,
+                  borderRadius: "0 0 10px 10px"
+                }}
               >
                 + AGREGAR FILA
               </button>
             </div>
 
             <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 10, paddingLeft: 4 }}>
-              * Cuando comience una nueva página, anote en esta columna la última fecha en que los territorios se completaron. · S-13-S 1/22
+              * Cuando comience una nueva pagina, anote en esta columna la ultima fecha en que los territorios se completaron. S-13-S 1/22
             </div>
           </div>
 
@@ -301,22 +277,21 @@ export default function App() {
               <div style={{
                 background: "#f1f5f9", padding: "10px 16px",
                 borderBottom: "1px solid #e2e8f0",
-                fontSize: 13, fontWeight: 600, color: "#334155",
-                display: "flex", alignItems: "center", gap: 8
+                fontSize: 13, fontWeight: 600, color: "#334155"
               }}>
-                📄 Vista previa del formulario original
+                Vista previa del formulario original
               </div>
               {loading && (
                 <div style={{ padding: 40, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>
                   Cargando PDF...
                 </div>
               )}
-              {error && !pdfUrl && (
-                <div style={{ padding: 20, textAlign: "center", color: "#64748b", fontSize: 12, lineHeight: 1.6 }}>
+              {!loading && !pdfUrl && (
+                <div style={{ padding: 24, textAlign: "center", color: "#64748b", fontSize: 12, lineHeight: 1.8 }}>
                   {error}
-                  <br /><br />
-                  <label style={{ ...btnStyle("#3b82f6"), display: "inline-block", cursor: "pointer" }}>
-                    📂 Cargar PDF manualmente
+                  <br />
+                  <label style={{ ...btnStyle("#3b82f6"), display: "inline-block", cursor: "pointer", marginTop: 8 }}>
+                    Cargar PDF
                     <input type="file" accept=".pdf" onChange={handleFileUpload} style={{ display: "none" }} />
                   </label>
                 </div>
@@ -370,7 +345,6 @@ export default function App() {
           color: "#fff", padding: "10px 20px", borderRadius: 8,
           fontSize: 13, fontWeight: 500,
           boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
-          animation: "fadeIn 0.2s ease",
           zIndex: 9999
         }}>
           {toast.msg}
@@ -379,19 +353,17 @@ export default function App() {
 
       <style>{`
         @media print {
-          button, label[for], .topbar { display: none !important; }
+          button, label { display: none !important; }
           iframe { display: none !important; }
         }
         input:focus { outline: none; box-shadow: 0 0 0 2px #bfdbfe; background: #fff !important; }
-        tr:hover { background: #f0f7ff !important; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
       `}</style>
     </div>
   );
 }
 
-// Style helpers
-function thMain(extra = {}) {
+// ---- Style helpers ----
+function thMain(extra) {
   return {
     background: "#1a2332", color: "#e2e8f0",
     fontSize: 11, fontWeight: 700, letterSpacing: "0.06em",
@@ -400,7 +372,7 @@ function thMain(extra = {}) {
     ...extra
   };
 }
-function thSub(extra = {}) {
+function thSub(extra) {
   return {
     background: "#253044", color: "rgba(226,232,240,0.6)",
     fontSize: 10, fontWeight: 500, padding: "5px 4px",
@@ -408,26 +380,23 @@ function thSub(extra = {}) {
     whiteSpace: "nowrap", ...extra
   };
 }
-function td(extra = {}) {
+function td(extra) {
   return { padding: "2px 3px", borderRight: "1px solid #e8edf3", verticalAlign: "middle", ...extra };
 }
 function cellInput(type) {
   const base = {
     width: "100%", border: "none", background: "transparent",
     fontSize: 12, textAlign: "center", padding: "5px 3px",
-    borderRadius: 3, transition: "background 0.15s, box-shadow 0.15s",
-    boxSizing: "border-box"
+    borderRadius: 3, boxSizing: "border-box"
   };
   if (type === "num") return { ...base, fontWeight: 700, fontSize: 13, color: "#2563eb" };
   if (type === "last") return { ...base, color: "#64748b", fontSize: 11 };
-  if (type === "date") return { ...base, fontSize: 11 };
   return base;
 }
 function btnStyle(bg) {
   return {
     background: bg, color: "#fff", border: "none",
     padding: "7px 14px", borderRadius: 6, cursor: "pointer",
-    fontSize: 12, fontWeight: 600, letterSpacing: "0.04em",
-    transition: "opacity 0.15s"
+    fontSize: 12, fontWeight: 600, letterSpacing: "0.04em"
   };
 }
