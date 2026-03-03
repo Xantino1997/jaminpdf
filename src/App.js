@@ -2,94 +2,112 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Al subir el PDF, esta app:
-//  1) Lee TODOS los ítems de texto con sus coordenadas reales
-//  2) Muestra en consola (F12) la lista completa para calibración
-//  3) Escribe los datos nuevos en posiciones ajustadas manualmente
-//
-// CÓMO CALIBRAR:
-//  - Abrí la consola del navegador (F12 → Console)
-//  - Subí tu PDF → vas a ver todos los ítems con x,y
-//  - Buscá "18" (número de territorio) → anotá su Y real
-//  - Buscá "JORGE" → su Y real
-//  - Buscá "03/03/26" → su Y real
-//  - Esos valores te dicen exactamente dónde están las filas
+// COORDENADAS EXACTAS extraídas del PDF S-13-S real con pdfplumber
+// Página: 595.32 × 842.04 pt
 // ─────────────────────────────────────────────────────────────────────────────
+const PDF_H = 842.04;
 
-const DEFAULT_ROWS = 20;
-const STORAGE_KEY  = "s13s_v10";
+// Centro X de cada columna (para centrar el texto horizontalmente)
+const CX = {
+  num:    54.0,
+  ultima: 103.4,
+  // Grupo 1: nombre ocupa la celda ancha, fechas en sub-celdas
+  g1n: 188.6,  g1a: 162.1,  g1c: 215.5,
+  // Grupo 2
+  g2n: 295.4,  g2a: 268.9,  g2c: 322.2,
+  // Grupo 3
+  g3n: 402.1,  g3a: 375.6,  g3c: 428.9,
+  // Grupo 4
+  g4n: 508.8,  g4a: 482.4,  g4c: 535.6,
+};
 
-// ── Colores de grupo ──────────────────────────────────────────────────────────
+// Centro Y (coordenadas pdf-lib, y=0 abajo) para nombre y fechas de cada fila
+// Calculado como el centro exacto de cada celda del PDF real
+const ROW_Y = [
+  { name: 688.6, date: 672.8 },  // fila 1
+  { name: 657.2, date: 641.5 },  // fila 2
+  { name: 625.9, date: 610.2 },  // fila 3
+  { name: 594.5, date: 578.9 },  // fila 4
+  { name: 563.2, date: 547.6 },  // fila 5
+  { name: 532.0, date: 516.3 },  // fila 6
+  { name: 500.6, date: 485.0 },  // fila 7
+  { name: 469.3, date: 453.6 },  // fila 8
+  { name: 438.0, date: 422.4 },  // fila 9
+  { name: 406.7, date: 391.1 },  // fila 10
+  { name: 375.5, date: 359.8 },  // fila 11
+  { name: 344.1, date: 328.5 },  // fila 12
+  { name: 312.8, date: 297.1 },  // fila 13
+  { name: 281.5, date: 265.9 },  // fila 14
+  { name: 250.2, date: 234.6 },  // fila 15
+  { name: 218.9, date: 203.3 },  // fila 16
+  { name: 187.6, date: 171.9 },  // fila 17
+  { name: 156.3, date: 140.6 },  // fila 18
+  { name: 125.0, date: 109.3 },  // fila 19
+  { name:  93.7, date:  77.8 },  // fila 20
+];
+
+// Rangos X para LEER el PDF (pdfjs, y=0 arriba)
+// x0/x1 de cada columna según el PDF real
+const READ_COLS = [
+  { key: "num",    x0: 36.2,  x1: 71.7  },
+  { key: "ultima", x0: 71.7,  x1: 135.2 },
+  { key: "g1",     x0: 135.2, x1: 242.0 },  // nombre g1 (celda ancha)
+  { key: "g1a",    x0: 135.2, x1: 189.0 },  // asignó g1
+  { key: "g1c",    x0: 189.0, x1: 242.0 },  // completó g1
+  { key: "g2",     x0: 242.0, x1: 348.8 },
+  { key: "g2a",    x0: 242.0, x1: 295.7 },
+  { key: "g2c",    x0: 295.7, x1: 348.8 },
+  { key: "g3",     x0: 348.8, x1: 455.5 },
+  { key: "g3a",    x0: 348.8, x1: 402.4 },
+  { key: "g3c",    x0: 402.4, x1: 455.5 },
+  { key: "g4",     x0: 455.5, x1: 562.0 },
+  { key: "g4a",    x0: 455.5, x1: 509.2 },
+  { key: "g4c",    x0: 509.2, x1: 562.0 },
+];
+
+// Bandas Y (y=0 arriba, pdfjs) para leer cada fila
+// (top_nombre, mid_divisor, bot_fechas) según coordenadas reales del PDF
+const READ_BANDS = [
+  { nameMin: 143, nameMax: 163, dateMin: 163, dateMax: 179 },
+  { nameMin: 175, nameMax: 194, dateMin: 194, dateMax: 210 },
+  { nameMin: 206, nameMax: 225, dateMin: 225, dateMax: 241 },
+  { nameMin: 237, nameMax: 257, dateMin: 257, dateMax: 273 },
+  { nameMin: 269, nameMax: 288, dateMin: 288, dateMax: 304 },
+  { nameMin: 300, nameMax: 319, dateMin: 319, dateMax: 335 },
+  { nameMin: 331, nameMax: 351, dateMin: 351, dateMax: 367 },
+  { nameMin: 363, nameMax: 382, dateMin: 382, dateMax: 398 },
+  { nameMin: 394, nameMax: 413, dateMin: 413, dateMax: 429 },
+  { nameMin: 425, nameMax: 445, dateMin: 445, dateMax: 461 },
+  { nameMin: 457, nameMax: 476, dateMin: 476, dateMax: 492 },
+  { nameMin: 488, nameMax: 507, dateMin: 507, dateMax: 523 },
+  { nameMin: 519, nameMax: 539, dateMin: 539, dateMax: 555 },
+  { nameMin: 551, nameMax: 570, dateMin: 570, dateMax: 586 },
+  { nameMin: 582, nameMax: 601, dateMin: 601, dateMax: 617 },
+  { nameMin: 613, nameMax: 632, dateMin: 632, dateMax: 648 },
+  { nameMin: 644, nameMax: 664, dateMin: 664, dateMax: 680 },
+  { nameMin: 676, nameMax: 695, dateMin: 695, dateMax: 711 },
+  { nameMin: 707, nameMax: 727, dateMin: 727, dateMax: 743 },
+  { nameMin: 738, nameMax: 758, dateMin: 758, dateMax: 774 },
+];
+
+// Tamaños de fuente
+const FS_NAME = 7.5;
+const FS_DATE = 7.0;
+const FS_NUM  = 8.0;
+const FS_YEAR = 9.0;
+// Ancho máximo de texto por tipo de celda
+const MAX_NAME = 50;
+const MAX_DATE = 36;
+const MAX_NUM  = 28;
+
+// Colores UI
 const GC  = ["#3b82f6","#10b981","#f59e0b","#8b5cf6"];
 const GBG = ["#eff6ff","#f0fdf4","#fffbeb","#f5f3ff"];
 const GHD = ["#1e3a5f","#065f46","#92400e","#4c1d95"];
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ESTRUCTURA DE FILAS DEL S-13-S
-// Cada fila del formulario tiene DOS bandas de altura:
-//   • banda NOMBRE (línea superior de cada par)
-//   • banda FECHAS (línea inferior de cada par)
-//
-// Estas posiciones son en coordenadas pdf-lib (y=0 abajo).
-// PDF_H=842 → y_pdflib = 842 - y_desde_arriba
-//
-// POSICIONES CALIBRADAS (ajustá según tu PDF real):
-// ─────────────────────────────────────────────────────────────────────────────
-const PDF_H = 842;
+const DEFAULT_ROWS = 20;
+const STORAGE_KEY  = "s13s_v11";
 
-// Generamos 20 filas dinámicamente.
-// Cada fila ocupa ~32pt (16 nombre + 16 fechas).
-// Primera fila comienza en y_desde_arriba ≈ 158 (nombre) y 174 (fechas).
-// Ajustá FIRST_NAME_Y y ROW_H si el texto no queda bien.
-const FIRST_NAME_Y = 161;  // y desde arriba de la primera línea de nombre
-const ROW_H        = 32;   // altura total de cada fila (nombre+fechas)
-const NAME_H       = 16;   // altura de la sub-línea de nombre
-const DATE_H       = 16;   // altura de la sub-línea de fechas
-
-// ── Posiciones X (centros de cada columna, coordenadas pdf-lib) ──────────────
-// Ajustá estos valores si el texto no cae en la columna correcta.
-// Abrí el PDF en Adobe/Chrome y usá "Propiedades" para ver tamaño de página.
-const COL_X = {
-  num:    54,    // Núm. de territorio
-  ultima: 103,   // Última fecha en que se completó
-  // Grupo 1
-  g1n: 163,  g1a: 163,  g1c: 215,
-  // Grupo 2
-  g2n: 269,  g2a: 269,  g2c: 322,
-  // Grupo 3
-  g3n: 376,  g3a: 376,  g3c: 429,
-  // Grupo 4
-  g4n: 482,  g4a: 482,  g4c: 535,
-};
-
-// Ancho máximo permitido por celda (pt)
-const MAX_W_NAME = 46;
-const MAX_W_DATE = 38;
-
-// ── Tamaños de fuente ─────────────────────────────────────────────────────────
-const FS_NAME = 7.5;
-const FS_DATE = 7.0;
-const FS_YEAR = 9.0;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// RANGOS X DE LECTURA (pdfjs coordenadas — escala 1)
-// Ajustá estos si los nombres/fechas no se leen bien del PDF
-// ─────────────────────────────────────────────────────────────────────────────
-const READ_COLS = [
-  {key:"num",    x0:30,  x1:75 },
-  {key:"ultima", x0:75,  x1:140},
-  {key:"g1",     x0:140, x1:193},
-  {key:"g1c",    x0:193, x1:246},
-  {key:"g2",     x0:246, x1:299},
-  {key:"g2c",    x0:299, x1:352},
-  {key:"g3",     x0:352, x1:405},
-  {key:"g3c",    x0:405, x1:458},
-  {key:"g4",     x0:458, x1:511},
-  {key:"g4c",    x0:511, x1:565},
-];
-
-// ─────────────────────────────────────────────────────────────────────────────
-// HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
 const emptyRow = () => ({
   num:"", ultima:"",
@@ -117,9 +135,6 @@ const parseDate = s => {
   return `${y}-${m}-${d}`;
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CARGA DE PDFJS (CDN)
-// ─────────────────────────────────────────────────────────────────────────────
 const loadPdfjs = () => new Promise((res,rej) => {
   if (window.pdfjsLib) { res(window.pdfjsLib); return; }
   const s = document.createElement("script");
@@ -134,9 +149,9 @@ const loadPdfjs = () => new Promise((res,rej) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// EXTRACCIÓN DE DATOS DEL PDF
+// EXTRACCIÓN con bandas Y exactas del PDF real
 // ─────────────────────────────────────────────────────────────────────────────
-const extractPDF = async (buf) => {
+const extractPDF = async buf => {
   try {
     const lib = await loadPdfjs();
     const pdf = await lib.getDocument({data: new Uint8Array(buf)}).promise;
@@ -150,84 +165,60 @@ const extractPDF = async (buf) => {
       .map(it => ({
         text: it.str.trim(),
         x:    it.transform[4],
-        y:    pH - it.transform[5],  // convertir a y-desde-arriba
+        y:    pH - it.transform[5],   // y=0 arriba
       }));
 
-    // ── LOG DIAGNÓSTICO completo ──────────────────────────────────────────
-    console.group("📄 PDF extraído — todos los ítems de texto");
-    console.log(`Página: ${vp.width.toFixed(1)} × ${vp.height.toFixed(1)} pt`);
-    console.log("Formato: x | y-desde-arriba | texto");
-    items
-      .sort((a,b)=>a.y-b.y)
-      .forEach(it => console.log(`  x=${it.x.toFixed(1).padStart(6)} y=${it.y.toFixed(1).padStart(6)}  →  "${it.text}"`));
-    console.groupEnd();
-
-    // ── Año de servicio ───────────────────────────────────────────────────
+    // Año de servicio (buscar número de 4 dígitos en la zona del encabezado)
     let yearVal = "";
-    // Buscar en zona superior (y 50-130), excluyendo texto fijo del formulario
-    const yearCandidates = items.filter(it =>
-      it.y > 50 && it.y < 130 && it.x > 60 && it.x < 280 &&
-      /^\d{4}/.test(it.text)   // debe empezar con 4 dígitos (año)
+    const yItem = items.find(it =>
+      it.y > 50 && it.y < 120 && it.x > 60 && it.x < 300 && /^\d{4}/.test(it.text)
     );
-    if (yearCandidates.length > 0) yearVal = yearCandidates[0].text;
-
-    // ── Filas de datos ────────────────────────────────────────────────────
-    // Usamos una estrategia diferente: agrupar ítems por banda Y
-    // Las bandas son franjas de ~16pt de alto
-    // Clasificamos cada ítem en su banda y columna
-
-    // Detectar automáticamente la primera fila buscando el primer número de territorio
-    // (suele ser 1, 2, 3... o cualquier número en la columna "num")
-    const rowBands = [];
-    for (let i=0; i<DEFAULT_ROWS; i++) {
-      const nameTop = FIRST_NAME_Y + i * ROW_H;
-      const dateTop = nameTop + NAME_H;
-      rowBands.push({
-        ri: i,
-        nameBand: {min: nameTop - 3, max: nameTop + NAME_H + 1},
-        dateBand: {min: dateTop - 2, max: dateTop + DATE_H + 2},
-      });
-    }
+    if (yItem) yearVal = yItem.text;
 
     const rows = Array.from({length:DEFAULT_ROWS}, emptyRow);
 
-    rowBands.forEach(({ri, nameBand, dateBand}) => {
+    READ_BANDS.forEach((band, ri) => {
       // Ítems en la banda de nombre
-      items.filter(it => it.y >= nameBand.min && it.y < nameBand.max).forEach(it => {
-        const col = READ_COLS.find(c => it.x >= c.x0 && it.x < c.x1);
-        if (!col) return;
-        if (col.key==="num")    rows[ri].num    = it.text;
-        if (col.key==="ultima") rows[ri].ultima = it.text;
-        if (col.key==="g1")     rows[ri].n1     = it.text;
-        if (col.key==="g2")     rows[ri].n2     = it.text;
-        if (col.key==="g3")     rows[ri].n3     = it.text;
-        if (col.key==="g4")     rows[ri].n4     = it.text;
+      items.filter(it => it.y >= band.nameMin && it.y < band.nameMax).forEach(it => {
+        // Para nombres: usar la columna ancha (g1, g2, g3, g4)
+        const nameCol = READ_COLS.find(c =>
+          (c.key==="num"||c.key==="ultima"||c.key==="g1"||c.key==="g2"||c.key==="g3"||c.key==="g4") &&
+          it.x >= c.x0 && it.x < c.x1
+        );
+        if (!nameCol) return;
+        if (nameCol.key==="num")    rows[ri].num    = it.text;
+        if (nameCol.key==="ultima") rows[ri].ultima = it.text;
+        if (nameCol.key==="g1")     rows[ri].n1     = it.text;
+        if (nameCol.key==="g2")     rows[ri].n2     = it.text;
+        if (nameCol.key==="g3")     rows[ri].n3     = it.text;
+        if (nameCol.key==="g4")     rows[ri].n4     = it.text;
       });
 
       // Ítems en la banda de fechas
-      items.filter(it => it.y >= dateBand.min && it.y < dateBand.max).forEach(it => {
-        const col = READ_COLS.find(c => it.x >= c.x0 && it.x < c.x1);
-        if (!col) return;
-        if (col.key==="g1")  rows[ri].a1 = parseDate(it.text);
-        if (col.key==="g1c") rows[ri].c1 = parseDate(it.text);
-        if (col.key==="g2")  rows[ri].a2 = parseDate(it.text);
-        if (col.key==="g2c") rows[ri].c2 = parseDate(it.text);
-        if (col.key==="g3")  rows[ri].a3 = parseDate(it.text);
-        if (col.key==="g3c") rows[ri].c3 = parseDate(it.text);
-        if (col.key==="g4")  rows[ri].a4 = parseDate(it.text);
-        if (col.key==="g4c") rows[ri].c4 = parseDate(it.text);
+      items.filter(it => it.y >= band.dateMin && it.y < band.dateMax).forEach(it => {
+        // Para fechas: usar sub-celdas
+        const dateCol = READ_COLS.find(c =>
+          (c.key==="g1a"||c.key==="g1c"||c.key==="g2a"||c.key==="g2c"||
+           c.key==="g3a"||c.key==="g3c"||c.key==="g4a"||c.key==="g4c") &&
+          it.x >= c.x0 && it.x < c.x1
+        );
+        if (!dateCol) return;
+        if (dateCol.key==="g1a") rows[ri].a1 = parseDate(it.text);
+        if (dateCol.key==="g1c") rows[ri].c1 = parseDate(it.text);
+        if (dateCol.key==="g2a") rows[ri].a2 = parseDate(it.text);
+        if (dateCol.key==="g2c") rows[ri].c2 = parseDate(it.text);
+        if (dateCol.key==="g3a") rows[ri].a3 = parseDate(it.text);
+        if (dateCol.key==="g3c") rows[ri].c3 = parseDate(it.text);
+        if (dateCol.key==="g4a") rows[ri].a4 = parseDate(it.text);
+        if (dateCol.key==="g4c") rows[ri].c4 = parseDate(it.text);
       });
     });
 
-    const filledCount = rows.filter(r=>r.num||r.n1||r.n2||r.n3||r.n4||r.a1||r.a2).length;
-    console.log(`✅ Filas con datos: ${filledCount}`);
-    rows.filter(r=>r.num||r.n1).forEach((r,i)=>
-      console.log(`  Fila ${i}: num="${r.num}" n1="${r.n1}" a1="${r.a1}" c1="${r.c1}"`)
-    );
-
+    const n = rows.filter(r=>r.num||r.n1||r.n2||r.n3||r.n4||r.a1||r.a2).length;
+    console.log(`✅ Filas leídas del PDF: ${n}`);
     return {rows, year: yearVal};
   } catch(e) {
-    console.error("extractPDF error:", e);
+    console.error("extractPDF:", e);
     return null;
   }
 };
@@ -245,9 +236,6 @@ export default function App() {
   const [extracting,setExtracting] = useState(false);
   const [busy,setBusy]             = useState(false);
   const [toast,setToast]           = useState(null);
-  // Estado de calibración (se puede ajustar desde la UI)
-  const [firstNameY, setFirstNameY] = useState(FIRST_NAME_Y);
-  const [rowH,       setRowH]       = useState(ROW_H);
   const blobRef = useRef(null);
 
   const showToast=(msg,type="ok")=>{ setToast({msg,type}); setTimeout(()=>setToast(null),4000); };
@@ -256,21 +244,21 @@ export default function App() {
   const activatePDF = useCallback(async(buf,name,read)=>{
     const u8=new Uint8Array(buf);
     setOrigBytes(u8); setPdfName(name);
-    if (blobRef.current) URL.revokeObjectURL(blobRef.current);
+    if(blobRef.current) URL.revokeObjectURL(blobRef.current);
     const blob=new Blob([u8],{type:"application/pdf"});
     blobRef.current=URL.createObjectURL(blob);
     setPreview(blobRef.current); setStatus("ready");
-    if (!read) return;
+    if(!read) return;
     setExtracting(true);
     showToast("📖 Leyendo datos del PDF…","info");
     const result=await extractPDF(buf);
     setExtracting(false);
-    if (!result){ showToast("No se pudieron leer datos","warn"); setRows(Array.from({length:DEFAULT_ROWS},emptyRow)); return; }
+    if(!result){showToast("No se leyeron datos","warn"); setRows(Array.from({length:DEFAULT_ROWS},emptyRow)); return;}
     setRows(result.rows);
     setYear(result.year||"");
     persist(result.rows, result.year||"");
     const f=result.rows.filter(r=>r.num||r.n1||r.n2||r.n3||r.n4||r.a1||r.a2).length;
-    showToast(f>0 ? `✅ Se cargaron datos de ${f} filas` : "PDF cargado — formulario vacío, podés completarlo");
+    showToast(f>0?`✅ ${f} filas cargadas del PDF`:"PDF cargado — formulario vacío, completalo");
   },[]); // eslint-disable-line
 
   useEffect(()=>{
@@ -290,6 +278,7 @@ export default function App() {
     const f=e.target.files[0]; if(!f)return; e.target.value="";
     await activatePDF(await f.arrayBuffer(),f.name,true);
   };
+
   const setField=(idx,field,val)=>{
     setRows(prev=>{const n=prev.map((r,i)=>i===idx?{...r,[field]:val}:r);persist(n,year);return n;});
   };
@@ -305,10 +294,7 @@ export default function App() {
     setRows(f);setYear("");persist(f,"");showToast("Tabla limpiada");
   };
 
-  // ── Generación del PDF ─────────────────────────────────────────────────────
-  // Parte SIEMPRE del PDF original limpio.
-  // Escribe nombre en la banda superior de cada fila.
-  // Escribe fechas en la banda inferior de cada fila.
+  // ── Generar PDF: siempre desde el original, coordenadas exactas ────────────
   const downloadPDF = async()=>{
     if(!origBytes){showToast("No hay PDF cargado","err");return;}
     setBusy(true);
@@ -318,47 +304,43 @@ export default function App() {
       const font = await doc.embedFont(StandardFonts.Helvetica);
       const black= rgb(0,0,0);
 
-      const writeAt=(text,x,y,fs,maxW)=>{
-        if(!text||!String(text).trim())return;
+      // Escribe texto centrado en X, en la Y exacta de la celda
+      const write=(text, cx, cy, fs, maxW)=>{
+        if(!text||!String(text).trim()) return;
         let t=String(text).trim();
         while(font.widthOfTextAtSize(t,fs)>maxW&&t.length>1) t=t.slice(0,-1);
         const tw=font.widthOfTextAtSize(t,fs);
-        page.drawText(t,{x:x-tw/2, y, size:fs, font, color:black});
+        page.drawText(t,{x:cx-tw/2, y:cy-fs/3, size:fs, font, color:black});
       };
 
-      // Año
+      // Año de servicio
       if(year){
         const yw=font.widthOfTextAtSize(year,FS_YEAR);
         page.drawText(year,{x:148-yw/2, y:PDF_H-91, size:FS_YEAR, font, color:black});
       }
 
       rows.slice(0,20).forEach((row,i)=>{
-        const nameTop = firstNameY + i * rowH;
-        const dateTop = nameTop + NAME_H;
+        const {name: yN, date: yD} = ROW_Y[i];
 
-        // Y central de cada banda (coordenadas pdf-lib: y=0 abajo)
-        const yName = PDF_H - nameTop - NAME_H/2 + FS_NAME/2 - 1;
-        const yDate = PDF_H - dateTop - DATE_H/2 + FS_DATE/2 - 1;
+        // Número de territorio y última fecha (centrados en la banda nombre)
+        write(row.num,    CX.num,    yN, FS_NUM,  MAX_NUM);
+        write(row.ultima, CX.ultima, yN, FS_DATE, MAX_DATE);
 
-        // Número y última fecha (centrados en la banda nombre)
-        writeAt(row.num,    COL_X.num,    yName, FS_NAME, 30);
-        writeAt(row.ultima, COL_X.ultima, yName, FS_DATE, MAX_W_DATE);
+        // Nombres (celda ancha superior)
+        write(row.n1, CX.g1n, yN, FS_NAME, MAX_NAME);
+        write(row.n2, CX.g2n, yN, FS_NAME, MAX_NAME);
+        write(row.n3, CX.g3n, yN, FS_NAME, MAX_NAME);
+        write(row.n4, CX.g4n, yN, FS_NAME, MAX_NAME);
 
-        // Nombres — banda superior
-        writeAt(row.n1, COL_X.g1n, yName, FS_NAME, MAX_W_NAME);
-        writeAt(row.n2, COL_X.g2n, yName, FS_NAME, MAX_W_NAME);
-        writeAt(row.n3, COL_X.g3n, yName, FS_NAME, MAX_W_NAME);
-        writeAt(row.n4, COL_X.g4n, yName, FS_NAME, MAX_W_NAME);
-
-        // Fechas — banda inferior
-        writeAt(fmtDate(row.a1), COL_X.g1a, yDate, FS_DATE, MAX_W_DATE);
-        writeAt(fmtDate(row.c1), COL_X.g1c, yDate, FS_DATE, MAX_W_DATE);
-        writeAt(fmtDate(row.a2), COL_X.g2a, yDate, FS_DATE, MAX_W_DATE);
-        writeAt(fmtDate(row.c2), COL_X.g2c, yDate, FS_DATE, MAX_W_DATE);
-        writeAt(fmtDate(row.a3), COL_X.g3a, yDate, FS_DATE, MAX_W_DATE);
-        writeAt(fmtDate(row.c3), COL_X.g3c, yDate, FS_DATE, MAX_W_DATE);
-        writeAt(fmtDate(row.a4), COL_X.g4a, yDate, FS_DATE, MAX_W_DATE);
-        writeAt(fmtDate(row.c4), COL_X.g4c, yDate, FS_DATE, MAX_W_DATE);
+        // Fechas (sub-celdas inferiores)
+        write(fmtDate(row.a1), CX.g1a, yD, FS_DATE, MAX_DATE);
+        write(fmtDate(row.c1), CX.g1c, yD, FS_DATE, MAX_DATE);
+        write(fmtDate(row.a2), CX.g2a, yD, FS_DATE, MAX_DATE);
+        write(fmtDate(row.c2), CX.g2c, yD, FS_DATE, MAX_DATE);
+        write(fmtDate(row.a3), CX.g3a, yD, FS_DATE, MAX_DATE);
+        write(fmtDate(row.c3), CX.g3c, yD, FS_DATE, MAX_DATE);
+        write(fmtDate(row.a4), CX.g4a, yD, FS_DATE, MAX_DATE);
+        write(fmtDate(row.c4), CX.g4c, yD, FS_DATE, MAX_DATE);
       });
 
       const out=await doc.save();
@@ -427,15 +409,6 @@ export default function App() {
         .info{background:#eff6ff;border:1px solid #bfdbfe;border-left:4px solid #3b82f6;
           border-radius:8px;padding:11px 16px;margin-bottom:14px;font-size:13px;color:#1e40af;line-height:1.7;}
 
-        /* Calibración */
-        .calib{background:#fff7ed;border:1px solid #fed7aa;border-left:4px solid #f97316;
-          border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:12px;color:#7c2d12;}
-        .calib-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;}
-        .calib label{display:flex;flex-direction:column;gap:3px;font-size:11px;font-weight:600;color:#92400e;}
-        .calib input{border:1px solid #fed7aa;border-radius:5px;padding:5px 8px;font-size:13px;
-          font-family:'IBM Plex Mono',monospace;outline:none;background:#fffbf5;}
-        .calib input:focus{border-color:#f97316;box-shadow:0 0 0 2px rgba(249,115,22,.2);}
-
         .tc{overflow:hidden;}
         .ts{overflow-x:auto;-webkit-overflow-scrolling:touch;}
         table{border-collapse:collapse;width:100%;min-width:900px;}
@@ -447,11 +420,10 @@ export default function App() {
         .th-grp-in{display:flex;flex-direction:column;}
         .th-grp-title{color:#e2e8f0;font-size:11px;font-weight:700;letter-spacing:.05em;
           text-transform:uppercase;padding:8px 8px 5px;text-align:center;}
-        .th-grp-sub{display:grid;grid-template-columns:1fr 1fr;
-          border-top:1px solid rgba(255,255,255,.1);}
-        .th-grp-sub-cell{color:rgba(226,232,240,.65);font-size:9px;font-weight:500;
+        .th-grp-sub{display:grid;grid-template-columns:1fr 1fr;border-top:1px solid rgba(255,255,255,.1);}
+        .th-grp-sub-c{color:rgba(226,232,240,.65);font-size:9px;font-weight:500;
           padding:4px 3px;text-align:center;letter-spacing:.03em;text-transform:uppercase;}
-        .th-grp-sub-cell:first-child{border-right:1px solid rgba(255,255,255,.08);}
+        .th-grp-sub-c:first-child{border-right:1px solid rgba(255,255,255,.08);}
 
         tbody tr{border-bottom:1px solid #e2e8f0;transition:background .1s;}
         tbody tr:nth-child(even){background:#f8fafc;}
@@ -460,6 +432,8 @@ export default function App() {
 
         .td{padding:3px;border-right:1px solid #e2e8f0;vertical-align:middle;}
         .td-g{padding:0;border-right:1px solid #e2e8f0;border-left:3px solid;}
+
+        /* PIRÁMIDE: nombre arriba (ancho completo), fechas abajo (mitad/mitad) */
         .pyr{display:flex;flex-direction:column;width:100%;}
         .pyr-top{width:100%;border-bottom:1px solid #e2e8f0;}
         .pyr-bot{display:grid;grid-template-columns:1fr 1fr;width:100%;}
@@ -545,7 +519,7 @@ export default function App() {
             ⚠️ No se encontró <code>public/assets/territorios.pdf</code>. Usá <strong>Subir PDF</strong>.
           </div>
         )}
-        {extracting&&<div className="ban ban-i">📖 Leyendo datos… revisá la consola (F12) para detalles.</div>}
+        {extracting&&<div className="ban ban-i">📖 Leyendo datos del PDF…</div>}
 
         <div className="wrap">
           <div className="grid">
@@ -559,27 +533,8 @@ export default function App() {
               </div>
 
               <div className="info">
-                📌 Subí tu PDF S-13-S → los datos se cargan automáticamente. Editá la tabla y descargá el PDF actualizado.
-              </div>
-
-              {/* Panel de calibración */}
-              <div className="calib">
-                <strong>🔧 Calibración de posición en el PDF</strong> — si el texto no queda en el lugar correcto, ajustá estos valores y volvé a descargar.
-                <div className="calib-grid">
-                  <label>
-                    Y primera fila (desde arriba, pt)
-                    <input type="number" value={firstNameY}
-                      onChange={e=>setFirstNameY(Number(e.target.value))} step="0.5"/>
-                  </label>
-                  <label>
-                    Altura de cada fila (pt)
-                    <input type="number" value={rowH}
-                      onChange={e=>setRowH(Number(e.target.value))} step="0.5"/>
-                  </label>
-                </div>
-                <div style={{marginTop:8,fontSize:11,color:"#92400e"}}>
-                  💡 Abrí la consola del navegador (F12) después de subir el PDF — verás las coordenadas exactas de cada ítem de texto para ajustar los valores.
-                </div>
+                📌 Subí tu <strong>PDF S-13-S</strong> — los datos existentes se cargan automáticamente.
+                Editá la tabla y descargá el PDF con los cambios escritos en las celdas correctas.
               </div>
 
               <div className="card tc">
@@ -594,8 +549,8 @@ export default function App() {
                             <div className="th-grp-in">
                               <div className="th-grp-title" style={{background:GHD[g]}}>Asignado a</div>
                               <div className="th-grp-sub" style={{background:GHD[g]}}>
-                                <div className="th-grp-sub-cell">📅 Asignó</div>
-                                <div className="th-grp-sub-cell">✅ Completó</div>
+                                <div className="th-grp-sub-c">📅 Asignó</div>
+                                <div className="th-grp-sub-c">✅ Completó</div>
                               </div>
                             </div>
                           </th>
@@ -658,7 +613,6 @@ export default function App() {
               </button>
             </div>
 
-            {/* Sidebar */}
             <div className="sb">
               {previewUrl&&(
                 <div className="sb-s">
