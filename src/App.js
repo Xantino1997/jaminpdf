@@ -1,6 +1,5 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 
-const PDF_URL = "/mnt/user-data/uploads/S-13_S.pdf";
 const DEFAULT_ROWS = 20;
 
 const makeEmptyRow = () => ({
@@ -13,12 +12,10 @@ const makeEmptyRow = () => ({
 
 export default function App() {
   const [pdfUrl, setPdfUrl] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [pdfFileName, setPdfFileName] = useState(null);
   const [rows, setRows] = useState([]);
   const [year, setYear] = useState("");
   const [toast, setToast] = useState(null);
-  const pdfBytesRef = useRef(null);
 
   const showToast = (msg, type = "success") => {
     setToast({ msg, type });
@@ -31,25 +28,8 @@ export default function App() {
     } catch {}
   };
 
+  // Cargar datos guardados al iniciar
   useEffect(() => {
-    const loadPDF = async () => {
-      try {
-        setLoading(true);
-        const res = await fetch(PDF_URL);
-        if (!res.ok) throw new Error("No se pudo cargar el PDF");
-        const bytes = await res.arrayBuffer();
-        pdfBytesRef.current = bytes;
-        const blob = new Blob([bytes], { type: "application/pdf" });
-        setPdfUrl(URL.createObjectURL(blob));
-      } catch (e) {
-        console.warn("PDF no disponible para preview:", e);
-        setError("Vista previa no disponible. Podés cargar el PDF manualmente.");
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadPDF();
-
     try {
       const saved = localStorage.getItem("s13s_v2");
       if (saved) {
@@ -60,7 +40,7 @@ export default function App() {
       }
     } catch {}
     setRows(Array.from({ length: DEFAULT_ROWS }, makeEmptyRow));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleRowChange = (idx, field, value) => {
     const updated = rows.map((r, i) => i === idx ? { ...r, [field]: value } : r);
@@ -116,9 +96,12 @@ export default function App() {
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    setPdfUrl(URL.createObjectURL(file));
-    setError(null);
-    showToast("PDF cargado");
+    // Revocar URL anterior si existe
+    if (pdfUrl) URL.revokeObjectURL(pdfUrl);
+    const url = URL.createObjectURL(file);
+    setPdfUrl(url);
+    setPdfFileName(file.name);
+    showToast(`PDF "${file.name}" cargado`);
   };
 
   const filledRows = rows.filter(r => r.num || r.ultima || r.a1 || r.a2 || r.a3 || r.a4);
@@ -134,28 +117,30 @@ export default function App() {
         boxShadow: "0 2px 8px rgba(0,0,0,0.3)"
       }}>
         <div>
-          <div style={{ fontWeight: 700, fontSize: 16, letterSpacing: 1 }}>S-13-S · Registro de Asignacion de Territorio</div>
+          <div style={{ fontWeight: 700, fontSize: 16, letterSpacing: 1 }}>
+            S-13-S · Registro de Asignacion de Territorio
+          </div>
           <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>
             {filledRows.length} de {rows.length} filas con datos · guardado automatico
           </div>
         </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <label style={btnStyle("#334155")}>
-            Cargar PDF
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <label style={{ ...btnStyle("#2563eb"), display: "inline-block", cursor: "pointer" }}>
+            📂 {pdfFileName ? "Cambiar PDF" : "Cargar PDF para vista previa"}
             <input type="file" accept=".pdf" onChange={handleFileUpload} style={{ display: "none" }} />
           </label>
-          <button onClick={exportCSV} style={btnStyle("#1d4ed8")}>CSV</button>
-          <button onClick={() => window.print()} style={btnStyle("#374151")}>Imprimir</button>
-          <button onClick={clearAll} style={btnStyle("#991b1b")}>Limpiar</button>
+          <button onClick={exportCSV} style={btnStyle("#0f766e")}>📊 Exportar CSV</button>
+          <button onClick={() => window.print()} style={btnStyle("#374151")}>🖨️ Imprimir</button>
+          <button onClick={clearAll} style={btnStyle("#991b1b")}>🗑️ Limpiar todo</button>
         </div>
       </div>
 
       <div style={{ maxWidth: 1400, margin: "0 auto", padding: "20px 16px 60px" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 420px", gap: 20, alignItems: "start" }}>
+        <div style={{ display: "grid", gridTemplateColumns: pdfUrl ? "1fr 420px" : "1fr", gap: 20, alignItems: "start" }}>
 
           {/* ===== FORMULARIO ===== */}
           <div>
-            {/* Encabezado año */}
+            {/* Encabezado */}
             <div style={{
               background: "#fff", borderRadius: 10, padding: "16px 20px",
               marginBottom: 16, border: "1px solid #e2e8f0",
@@ -163,7 +148,7 @@ export default function App() {
               display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap"
             }}>
               <div style={{ fontSize: 18, fontWeight: 700, color: "#1e293b" }}>
-                Registro de Asignacion de Territorio
+                REGISTRO DE ASIGNACION DE TERRITORIO
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
                 <label style={{ fontSize: 12, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: 1 }}>
@@ -184,14 +169,26 @@ export default function App() {
               </div>
             </div>
 
-            {/* Nota */}
+            {/* Banner si no hay PDF cargado */}
+            {!pdfUrl && (
+              <div style={{
+                background: "#fefce8", border: "1px solid #fde68a", borderLeft: "4px solid #f59e0b",
+                borderRadius: 8, padding: "10px 14px", marginBottom: 14,
+                fontSize: 12, color: "#92400e", lineHeight: 1.6,
+                display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap"
+              }}>
+                <span>💡 <strong>Tip:</strong> Cargar el PDF S-13-S con el boton de arriba para ver la vista previa junto al formulario.</span>
+              </div>
+            )}
+
+            {/* Nota info */}
             <div style={{
               background: "#eff6ff", border: "1px solid #bfdbfe", borderLeft: "4px solid #3b82f6",
               borderRadius: 8, padding: "8px 14px", marginBottom: 14,
               fontSize: 12, color: "#1e40af", lineHeight: 1.5
             }}>
               Hace clic en cualquier celda para editar. Los datos se guardan automaticamente en el navegador.
-              &nbsp;&middot;&nbsp; * Al comenzar nueva pagina, anota la ultima fecha en que se completo cada territorio.
+              &nbsp;&middot;&nbsp; * Al comenzar nueva pagina, anota la ultima fecha completada.
             </div>
 
             {/* Tabla */}
@@ -204,7 +201,7 @@ export default function App() {
                   <thead>
                     <tr>
                       <th rowSpan={2} style={thMain({ width: 56 })}>Num.<br/>terr.</th>
-                      <th rowSpan={2} style={thMain({ width: 90 })}>Ultima<br/>fecha *</th>
+                      <th rowSpan={2} style={thMain({ width: 95 })}>Ultima<br/>fecha *</th>
                       <th colSpan={2} style={thMain({ borderLeft: "2px solid #3a4a6b" })}>Asignado a</th>
                       <th colSpan={2} style={thMain({ borderLeft: "2px solid #3a4a6b" })}>Asignado a</th>
                       <th colSpan={2} style={thMain({ borderLeft: "2px solid #3a4a6b" })}>Asignado a</th>
@@ -228,112 +225,128 @@ export default function App() {
                         background: idx % 2 === 0 ? "#fff" : "#f8fafc",
                         borderBottom: "1px solid #e8edf3"
                       }}>
-                        <td style={td()}><input style={cellInput("num")} value={row.num} onChange={e => handleRowChange(idx, "num", e.target.value)} placeholder="#" /></td>
-                        <td style={td()}><input style={cellInput("last")} value={row.ultima} onChange={e => handleRowChange(idx, "ultima", e.target.value)} placeholder="dd/mm/aaaa" /></td>
-                        <td style={td({ borderLeft: "2px solid #bfdbfe" })}><input type="date" style={cellInput("date")} value={row.a1} onChange={e => handleRowChange(idx, "a1", e.target.value)} /></td>
-                        <td style={td()}><input type="date" style={cellInput("date")} value={row.c1} onChange={e => handleRowChange(idx, "c1", e.target.value)} /></td>
-                        <td style={td({ borderLeft: "2px solid #bfdbfe" })}><input type="date" style={cellInput("date")} value={row.a2} onChange={e => handleRowChange(idx, "a2", e.target.value)} /></td>
-                        <td style={td()}><input type="date" style={cellInput("date")} value={row.c2} onChange={e => handleRowChange(idx, "c2", e.target.value)} /></td>
-                        <td style={td({ borderLeft: "2px solid #bfdbfe" })}><input type="date" style={cellInput("date")} value={row.a3} onChange={e => handleRowChange(idx, "a3", e.target.value)} /></td>
-                        <td style={td()}><input type="date" style={cellInput("date")} value={row.c3} onChange={e => handleRowChange(idx, "c3", e.target.value)} /></td>
-                        <td style={td({ borderLeft: "2px solid #bfdbfe" })}><input type="date" style={cellInput("date")} value={row.a4} onChange={e => handleRowChange(idx, "a4", e.target.value)} /></td>
-                        <td style={td()}><input type="date" style={cellInput("date")} value={row.c4} onChange={e => handleRowChange(idx, "c4", e.target.value)} /></td>
+                        <td style={td()}>
+                          <input style={cellInput("num")} value={row.num}
+                            onChange={e => handleRowChange(idx, "num", e.target.value)} placeholder="#" />
+                        </td>
+                        <td style={td()}>
+                          <input style={cellInput("last")} value={row.ultima}
+                            onChange={e => handleRowChange(idx, "ultima", e.target.value)} placeholder="dd/mm/aaaa" />
+                        </td>
+                        <td style={td({ borderLeft: "2px solid #dbeafe" })}>
+                          <input type="date" style={cellInput("date")} value={row.a1}
+                            onChange={e => handleRowChange(idx, "a1", e.target.value)} />
+                        </td>
+                        <td style={td()}>
+                          <input type="date" style={cellInput("date")} value={row.c1}
+                            onChange={e => handleRowChange(idx, "c1", e.target.value)} />
+                        </td>
+                        <td style={td({ borderLeft: "2px solid #dbeafe" })}>
+                          <input type="date" style={cellInput("date")} value={row.a2}
+                            onChange={e => handleRowChange(idx, "a2", e.target.value)} />
+                        </td>
+                        <td style={td()}>
+                          <input type="date" style={cellInput("date")} value={row.c2}
+                            onChange={e => handleRowChange(idx, "c2", e.target.value)} />
+                        </td>
+                        <td style={td({ borderLeft: "2px solid #dbeafe" })}>
+                          <input type="date" style={cellInput("date")} value={row.a3}
+                            onChange={e => handleRowChange(idx, "a3", e.target.value)} />
+                        </td>
+                        <td style={td()}>
+                          <input type="date" style={cellInput("date")} value={row.c3}
+                            onChange={e => handleRowChange(idx, "c3", e.target.value)} />
+                        </td>
+                        <td style={td({ borderLeft: "2px solid #dbeafe" })}>
+                          <input type="date" style={cellInput("date")} value={row.a4}
+                            onChange={e => handleRowChange(idx, "a4", e.target.value)} />
+                        </td>
+                        <td style={td()}>
+                          <input type="date" style={cellInput("date")} value={row.c4}
+                            onChange={e => handleRowChange(idx, "c4", e.target.value)} />
+                        </td>
                         <td style={{ ...td(), width: 28, padding: "2px 4px" }}>
-                          <button
-                            onClick={() => deleteRow(idx)}
-                            title="Eliminar"
-                            style={{ background: "none", border: "none", color: "#cbd5e1", cursor: "pointer", fontSize: 14, padding: "3px 5px", borderRadius: 4 }}
-                          >x</button>
+                          <button onClick={() => deleteRow(idx)} title="Eliminar fila"
+                            style={{ background: "none", border: "none", color: "#cbd5e1", cursor: "pointer", fontSize: 14, padding: "3px 6px", borderRadius: 4 }}>
+                            x
+                          </button>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              <button
-                onClick={addRow}
-                style={{
-                  width: "100%", padding: 10, background: "#f8fafc", border: "none",
-                  borderTop: "2px dashed #e2e8f0", color: "#94a3b8", fontSize: 13,
-                  fontWeight: 600, cursor: "pointer", letterSpacing: 1,
-                  borderRadius: "0 0 10px 10px"
-                }}
-              >
+              <button onClick={addRow} style={{
+                width: "100%", padding: 10, background: "#f8fafc", border: "none",
+                borderTop: "2px dashed #e2e8f0", color: "#94a3b8", fontSize: 13,
+                fontWeight: 600, cursor: "pointer", letterSpacing: 1,
+                borderRadius: "0 0 10px 10px"
+              }}>
                 + AGREGAR FILA
               </button>
             </div>
 
-            <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 10, paddingLeft: 4 }}>
+            <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 10, paddingLeft: 4, lineHeight: 1.6 }}>
               * Cuando comience una nueva pagina, anote en esta columna la ultima fecha en que los territorios se completaron. S-13-S 1/22
             </div>
           </div>
 
           {/* ===== PREVIEW PDF ===== */}
-          <div style={{ position: "sticky", top: 70 }}>
-            <div style={{
-              background: "#fff", borderRadius: 10, overflow: "hidden",
-              border: "1px solid #e2e8f0", boxShadow: "0 1px 4px rgba(0,0,0,0.06)"
-            }}>
+          {pdfUrl && (
+            <div style={{ position: "sticky", top: 70 }}>
               <div style={{
-                background: "#f1f5f9", padding: "10px 16px",
-                borderBottom: "1px solid #e2e8f0",
-                fontSize: 13, fontWeight: 600, color: "#334155"
+                background: "#fff", borderRadius: 10, overflow: "hidden",
+                border: "1px solid #e2e8f0", boxShadow: "0 1px 4px rgba(0,0,0,0.06)"
               }}>
-                Vista previa del formulario original
-              </div>
-              {loading && (
-                <div style={{ padding: 40, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>
-                  Cargando PDF...
+                <div style={{
+                  background: "#f1f5f9", padding: "10px 16px",
+                  borderBottom: "1px solid #e2e8f0",
+                  fontSize: 13, fontWeight: 600, color: "#334155",
+                  display: "flex", justifyContent: "space-between", alignItems: "center"
+                }}>
+                  <span>📄 {pdfFileName}</span>
+                  <button onClick={() => { setPdfUrl(null); setPdfFileName(null); }}
+                    style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", fontSize: 18, lineHeight: 1 }}>
+                    x
+                  </button>
                 </div>
-              )}
-              {!loading && !pdfUrl && (
-                <div style={{ padding: 24, textAlign: "center", color: "#64748b", fontSize: 12, lineHeight: 1.8 }}>
-                  {error}
-                  <br />
-                  <label style={{ ...btnStyle("#3b82f6"), display: "inline-block", cursor: "pointer", marginTop: 8 }}>
-                    Cargar PDF
-                    <input type="file" accept=".pdf" onChange={handleFileUpload} style={{ display: "none" }} />
-                  </label>
-                </div>
-              )}
-              {pdfUrl && (
                 <iframe
                   src={pdfUrl}
                   title="S-13-S Preview"
                   width="100%"
-                  height="580"
+                  height="600"
                   style={{ border: "none", display: "block" }}
                 />
-              )}
-            </div>
+              </div>
 
-            {/* Stats */}
-            <div style={{
-              marginTop: 12, background: "#fff", borderRadius: 10,
-              border: "1px solid #e2e8f0", padding: "14px 16px",
-              boxShadow: "0 1px 4px rgba(0,0,0,0.06)"
-            }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#334155", marginBottom: 10, textTransform: "uppercase", letterSpacing: 1 }}>
-                Resumen
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                {[
-                  { label: "Filas totales", value: rows.length, color: "#3b82f6" },
-                  { label: "Con datos", value: filledRows.length, color: "#10b981" },
-                  { label: "Asignaciones", value: rows.filter(r => r.a1 || r.a2 || r.a3 || r.a4).length, color: "#f59e0b" },
-                  { label: "Completados", value: rows.filter(r => r.c1 || r.c2 || r.c3 || r.c4).length, color: "#8b5cf6" },
-                ].map(s => (
-                  <div key={s.label} style={{
-                    background: "#f8fafc", borderRadius: 8, padding: "10px 12px",
-                    borderLeft: `3px solid ${s.color}`
-                  }}>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: s.color }}>{s.value}</div>
-                    <div style={{ fontSize: 11, color: "#64748b" }}>{s.label}</div>
-                  </div>
-                ))}
+              {/* Stats */}
+              <div style={{
+                marginTop: 12, background: "#fff", borderRadius: 10,
+                border: "1px solid #e2e8f0", padding: "14px 16px",
+                boxShadow: "0 1px 4px rgba(0,0,0,0.06)"
+              }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#334155", marginBottom: 10, textTransform: "uppercase", letterSpacing: 1 }}>
+                  Resumen
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  {[
+                    { label: "Filas totales", value: rows.length, color: "#3b82f6" },
+                    { label: "Con datos", value: filledRows.length, color: "#10b981" },
+                    { label: "Asignaciones", value: rows.filter(r => r.a1 || r.a2 || r.a3 || r.a4).length, color: "#f59e0b" },
+                    { label: "Completados", value: rows.filter(r => r.c1 || r.c2 || r.c3 || r.c4).length, color: "#8b5cf6" },
+                  ].map(s => (
+                    <div key={s.label} style={{
+                      background: "#f8fafc", borderRadius: 8, padding: "10px 12px",
+                      borderLeft: `3px solid ${s.color}`
+                    }}>
+                      <div style={{ fontSize: 20, fontWeight: 700, color: s.color }}>{s.value}</div>
+                      <div style={{ fontSize: 11, color: "#64748b" }}>{s.label}</div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
 
@@ -357,12 +370,12 @@ export default function App() {
           iframe { display: none !important; }
         }
         input:focus { outline: none; box-shadow: 0 0 0 2px #bfdbfe; background: #fff !important; }
+        tr:hover { background: #f0f7ff !important; }
       `}</style>
     </div>
   );
 }
 
-// ---- Style helpers ----
 function thMain(extra) {
   return {
     background: "#1a2332", color: "#e2e8f0",
@@ -374,7 +387,7 @@ function thMain(extra) {
 }
 function thSub(extra) {
   return {
-    background: "#253044", color: "rgba(226,232,240,0.6)",
+    background: "#253044", color: "rgba(226,232,240,0.65)",
     fontSize: 10, fontWeight: 500, padding: "5px 4px",
     textAlign: "center", border: "1px solid rgba(255,255,255,0.05)",
     whiteSpace: "nowrap", ...extra
