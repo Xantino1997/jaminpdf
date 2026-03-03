@@ -1,20 +1,20 @@
 {
-  "short_name": "React App",
-  "name": "Create React App Sample",
+  "short_name": "FABRI PDF",
+  "name": "CRUD DE PDF",
   "icons": [
     {
-      "src": "favicon.ico",
+      "src": "CR.jfif",
       "sizes": "64x64 32x32 24x24 16x16",
       "type": "image/x-icon"
     },
     {
-      "src": "logo192.png",
+      "src": "CR.jfif",
       "type": "image/png",
       "sizes": "192x192"
     },
     {
-      "src": "logo512.png",
-      "type": "image/png",
+      "src": "CR.jfif",
+      "type": "image/jfif",
       "sizes": "512x512"
     }
   ],
