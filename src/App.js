@@ -242,7 +242,9 @@ export default function App() {
   const persist=(r,y)=>{ try{localStorage.setItem(STORAGE_KEY,JSON.stringify({rows:r,year:y}));}catch{} };
 
   const activatePDF = useCallback(async(buf,name,read)=>{
-    const u8=new Uint8Array(buf);
+    // Guardamos una copia independiente de los bytes originales
+    const copy = buf.slice(0);
+    const u8   = new Uint8Array(copy);
     setOrigBytes(u8); setPdfName(name);
     if(blobRef.current) URL.revokeObjectURL(blobRef.current);
     const blob=new Blob([u8],{type:"application/pdf"});
@@ -299,7 +301,8 @@ export default function App() {
     if(!origBytes){showToast("No hay PDF cargado","err");return;}
     setBusy(true);
     try{
-      const doc  = await PDFDocument.load(origBytes,{ignoreEncryption:true});
+      // Pasamos una copia fresca para que pdf-lib no mute los bytes originales
+      const doc  = await PDFDocument.load(origBytes.slice(0),{ignoreEncryption:true});
       const page = doc.getPages()[0];
       const font = await doc.embedFont(StandardFonts.Helvetica);
       const black= rgb(0,0,0);
