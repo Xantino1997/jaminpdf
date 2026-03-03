@@ -1,14 +1,10 @@
 // ─────────────────────────────────────────────────────────────────────────────
 //  S-13-S · Registro de Asignación de Territorio
-//
-//  Agregar en public/index.html dentro de <head>:
-//    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
-//    <script src="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
-//
-//  PDF por defecto: public/assets/territorios.pdf
+//  Usa pdf-lib (npm) para escritura y pdfjs-dist (CDN worker) para lectura
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useEffect, useState, useRef, useCallback } from "react";
+import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 
 // ── Dimensiones del PDF S-13-S ────────────────────────────────────────────────
 const PDF_H = 842.04;
@@ -45,10 +41,10 @@ const LINE_TOPS = [
   631, 646,   662, 677,   693, 708,   725, 740,   756, 771,
 ];
 
-const DEFAULT_ROWS  = 20;
-const STORAGE_KEY   = "s13s_v5";
-const FS            = 6.5;
-const MAX_W         = 48;
+const DEFAULT_ROWS = 20;
+const STORAGE_KEY  = "s13s_v5";
+const FS           = 6.5;
+const MAX_W        = 48;
 
 // ── Fila vacía ────────────────────────────────────────────────────────────────
 const emptyRow = () => ({
@@ -79,24 +75,32 @@ const parseDate = (s) => {
   return `${y}-${m}-${d}`;
 };
 
+// ── Cargar pdfjs-dist desde CDN (worker incluido) ────────────────────────────
+const loadPdfjsLib = () => {
+  return new Promise((resolve, reject) => {
+    if (window.pdfjsLib) { resolve(window.pdfjsLib); return; }
+    const script = document.createElement("script");
+    script.src = "https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js";
+    script.onload = () => {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+      resolve(window.pdfjsLib);
+    };
+    script.onerror = () => reject(new Error("No se pudo cargar pdfjs-dist"));
+    document.head.appendChild(script);
+  });
+};
+
 // ── Extraer datos del PDF usando pdf.js ──────────────────────────────────────
 const extractPDFData = async (arrayBuffer) => {
-  const lib = window.pdfjsLib;
-  if (!lib) return null;
-
-  if (!lib.GlobalWorkerOptions.workerSrc) {
-    lib.GlobalWorkerOptions.workerSrc =
-      "https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
-  }
-
   try {
-    const pdf      = await lib.getDocument({ data: arrayBuffer.slice(0) }).promise;
-    const page     = await pdf.getPage(1);
-    const vp       = page.getViewport({ scale: 1 });
-    const pageH    = vp.height;
-    const content  = await page.getTextContent();
+    const lib  = await loadPdfjsLib();
+    const pdf  = await lib.getDocument({ data: arrayBuffer.slice(0) }).promise;
+    const page = await pdf.getPage(1);
+    const vp   = page.getViewport({ scale: 1 });
+    const pageH = vp.height;
+    const content = await page.getTextContent();
 
-    // Convertir items a coordenadas con y=0 arriba
     const items = content.items
       .map((it) => ({
         text: it.str.trim(),
@@ -105,7 +109,6 @@ const extractPDFData = async (arrayBuffer) => {
       }))
       .filter((it) => it.text.length > 0);
 
-    // Año
     let yearVal = "";
     const yItem = items.find((it) => it.y > 80 && it.y < 100 && it.x > 100 && it.x < 220);
     if (yItem) yearVal = yItem.text;
@@ -195,7 +198,7 @@ export default function App() {
   const [pdfBytes,   setPdfBytes]   = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [pdfName,    setPdfName]    = useState("territorios.pdf");
-  const [status,     setStatus]     = useState("loading"); // loading | ready | error
+  const [status,     setStatus]     = useState("loading");
   const [extracting, setExtracting] = useState(false);
   const [busy,       setBusy]       = useState(false);
   const [toast,      setToast]      = useState(null);
@@ -212,10 +215,12 @@ export default function App() {
 
   // ── Activar un ArrayBuffer como PDF activo ────────────────────────────────
   const activatePDF = useCallback(async (buf, name, readData) => {
-    setPdfBytes(buf);
+    // Guardar como Uint8Array para que pdf-lib pueda cargarlo correctamente
+    const uint8 = new Uint8Array(buf);
+    setPdfBytes(uint8);
     setPdfName(name);
     if (blobRef.current) URL.revokeObjectURL(blobRef.current);
-    const blob = new Blob([buf], { type: "application/pdf" });
+    const blob = new Blob([uint8], { type: "application/pdf" });
     blobRef.current = URL.createObjectURL(blob);
     setPreviewUrl(blobRef.current);
     setStatus("ready");
@@ -240,7 +245,7 @@ export default function App() {
       setRows(result.rows);
       setYear(result.year || "");
       persist(result.rows, result.year || "");
-      showToast(`✅ Datos cargados del PDF`);
+      showToast("✅ Datos cargados del PDF");
     } else {
       showToast("PDF cargado — no se detectaron datos previos");
     }
@@ -248,7 +253,6 @@ export default function App() {
 
   // ── Carga inicial ─────────────────────────────────────────────────────────
   useEffect(() => {
-    // Restaurar formulario guardado
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
@@ -262,7 +266,6 @@ export default function App() {
       setRows(Array.from({ length: DEFAULT_ROWS }, emptyRow));
     }
 
-    // Cargar PDF por defecto
     fetch("/assets/territorios.pdf")
       .then((r) => { if (!r.ok) throw new Error(); return r.arrayBuffer(); })
       .then((buf) => activatePDF(buf, "territorios.pdf", false))
@@ -303,27 +306,28 @@ export default function App() {
     showToast("Formulario limpiado");
   };
 
-  // ── Descargar PDF editado ─────────────────────────────────────────────────
+  // ── Descargar PDF editado — usa pdf-lib desde npm ─────────────────────────
   const downloadPDF = async () => {
     if (!pdfBytes) { showToast("No hay PDF cargado", "err"); return; }
-    if (!window.PDFLib) { showToast("pdf-lib no disponible — recargá la página", "err"); return; }
     setBusy(true);
     try {
-      const { PDFDocument, rgb, StandardFonts } = window.PDFLib;
-      const doc   = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
-      const page  = doc.getPages()[0];
-      const font  = await doc.embedFont(StandardFonts.Helvetica);
+      // Cargar el PDF original
+      const doc  = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
+      const page = doc.getPages()[0];
+      const font = await doc.embedFont(StandardFonts.Helvetica);
       const black = rgb(0, 0, 0);
 
       const write = (text, cx, topPP, lineH) => {
         if (!text || !String(text).trim()) return;
         let t = String(text).trim();
+        // Truncar si es muy ancho
         while (font.widthOfTextAtSize(t, FS) > MAX_W && t.length > 1) t = t.slice(0, -1);
         const tw = font.widthOfTextAtSize(t, FS);
         const y  = PDF_H - topPP - lineH / 2 - FS / 3;
         page.drawText(t, { x: cx - tw / 2, y, size: FS, font, color: black });
       };
 
+      // Año de servicio
       if (year) {
         const yw = font.widthOfTextAtSize(year, 9);
         page.drawText(year, { x: 148 - yw / 2, y: PDF_H - 91, size: 9, font, color: black });
@@ -357,7 +361,9 @@ export default function App() {
       const blob = new Blob([out], { type: "application/pdf" });
       const url  = URL.createObjectURL(blob);
       const a    = document.createElement("a");
-      a.href = url; a.download = `territorios_${year || "editado"}.pdf`; a.click();
+      a.href = url;
+      a.download = `territorios_${year || "editado"}.pdf`;
+      a.click();
       setTimeout(() => URL.revokeObjectURL(url), 8000);
       showToast("¡PDF descargado!");
     } catch (e) {
@@ -401,13 +407,10 @@ export default function App() {
         </div>
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {/* Subir PDF */}
           <label style={{ ...btnS("#0f766e"), cursor: "pointer" }}>
             📂 Subir PDF
             <input type="file" accept=".pdf" onChange={handleUpload} style={{ display: "none" }} />
           </label>
-
-          {/* Descargar */}
           <button
             onClick={downloadPDF}
             disabled={!canDownload}
@@ -417,7 +420,6 @@ export default function App() {
           >
             {busy ? "⏳ Generando…" : "📥 Descargar PDF editado"}
           </button>
-
           <button onClick={clearAll} style={btnS("#991b1b")}>
             🗑️ Limpiar
           </button>
@@ -633,10 +635,10 @@ export default function App() {
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7 }}>
                   {[
-                    { label: "Filas total", value: rows.length,                                          color: "#3b82f6" },
-                    { label: "Con datos",   value: filledCount,                                          color: "#10b981" },
-                    { label: "Con nombre",  value: rows.filter((r) => r.n1||r.n2||r.n3||r.n4).length,  color: "#f59e0b" },
-                    { label: "Con fechas",  value: rows.filter((r) => r.a1||r.a2||r.a3||r.a4).length,  color: "#8b5cf6" },
+                    { label: "Filas total", value: rows.length,                                         color: "#3b82f6" },
+                    { label: "Con datos",   value: filledCount,                                         color: "#10b981" },
+                    { label: "Con nombre",  value: rows.filter((r) => r.n1||r.n2||r.n3||r.n4).length, color: "#f59e0b" },
+                    { label: "Con fechas",  value: rows.filter((r) => r.a1||r.a2||r.a3||r.a4).length, color: "#8b5cf6" },
                   ].map((s) => (
                     <div key={s.label} style={{
                       background: "#f8fafc", borderRadius: 8, padding: "9px 11px",
