@@ -1,59 +1,46 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// COORDENADAS EXACTAS extraídas del PDF S-13-S real con pdfplumber
-// Página: 595.32 × 842.04 pt
-// ─────────────────────────────────────────────────────────────────────────────
 const PDF_H = 842.04;
 
-// Centro X de cada columna (para centrar el texto horizontalmente)
 const CX = {
   num:    54.0,
   ultima: 103.4,
-  // Grupo 1: nombre ocupa la celda ancha, fechas en sub-celdas
   g1n: 188.6,  g1a: 162.1,  g1c: 215.5,
-  // Grupo 2
   g2n: 295.4,  g2a: 268.9,  g2c: 322.2,
-  // Grupo 3
   g3n: 402.1,  g3a: 375.6,  g3c: 428.9,
-  // Grupo 4
   g4n: 508.8,  g4a: 482.4,  g4c: 535.6,
 };
 
-// Centro Y (coordenadas pdf-lib, y=0 abajo) para nombre y fechas de cada fila
-// Calculado como el centro exacto de cada celda del PDF real
 const ROW_Y = [
-  { name: 688.6, date: 672.8 },  // fila 1
-  { name: 657.2, date: 641.5 },  // fila 2
-  { name: 625.9, date: 610.2 },  // fila 3
-  { name: 594.5, date: 578.9 },  // fila 4
-  { name: 563.2, date: 547.6 },  // fila 5
-  { name: 532.0, date: 516.3 },  // fila 6
-  { name: 500.6, date: 485.0 },  // fila 7
-  { name: 469.3, date: 453.6 },  // fila 8
-  { name: 438.0, date: 422.4 },  // fila 9
-  { name: 406.7, date: 391.1 },  // fila 10
-  { name: 375.5, date: 359.8 },  // fila 11
-  { name: 344.1, date: 328.5 },  // fila 12
-  { name: 312.8, date: 297.1 },  // fila 13
-  { name: 281.5, date: 265.9 },  // fila 14
-  { name: 250.2, date: 234.6 },  // fila 15
-  { name: 218.9, date: 203.3 },  // fila 16
-  { name: 187.6, date: 171.9 },  // fila 17
-  { name: 156.3, date: 140.6 },  // fila 18
-  { name: 125.0, date: 109.3 },  // fila 19
-  { name:  93.7, date:  77.8 },  // fila 20
+  { name: 688.6, date: 672.8 },
+  { name: 657.2, date: 641.5 },
+  { name: 625.9, date: 610.2 },
+  { name: 594.5, date: 578.9 },
+  { name: 563.2, date: 547.6 },
+  { name: 532.0, date: 516.3 },
+  { name: 500.6, date: 485.0 },
+  { name: 469.3, date: 453.6 },
+  { name: 438.0, date: 422.4 },
+  { name: 406.7, date: 391.1 },
+  { name: 375.5, date: 359.8 },
+  { name: 344.1, date: 328.5 },
+  { name: 312.8, date: 297.1 },
+  { name: 281.5, date: 265.9 },
+  { name: 250.2, date: 234.6 },
+  { name: 218.9, date: 203.3 },
+  { name: 187.6, date: 171.9 },
+  { name: 156.3, date: 140.6 },
+  { name: 125.0, date: 109.3 },
+  { name:  93.7, date:  77.8 },
 ];
 
-// Rangos X para LEER el PDF (pdfjs, y=0 arriba)
-// x0/x1 de cada columna según el PDF real
 const READ_COLS = [
   { key: "num",    x0: 36.2,  x1: 71.7  },
   { key: "ultima", x0: 71.7,  x1: 135.2 },
-  { key: "g1",     x0: 135.2, x1: 242.0 },  // nombre g1 (celda ancha)
-  { key: "g1a",    x0: 135.2, x1: 189.0 },  // asignó g1
-  { key: "g1c",    x0: 189.0, x1: 242.0 },  // completó g1
+  { key: "g1",     x0: 135.2, x1: 242.0 },
+  { key: "g1a",    x0: 135.2, x1: 189.0 },
+  { key: "g1c",    x0: 189.0, x1: 242.0 },
   { key: "g2",     x0: 242.0, x1: 348.8 },
   { key: "g2a",    x0: 242.0, x1: 295.7 },
   { key: "g2c",    x0: 295.7, x1: 348.8 },
@@ -65,8 +52,6 @@ const READ_COLS = [
   { key: "g4c",    x0: 509.2, x1: 562.0 },
 ];
 
-// Bandas Y (y=0 arriba, pdfjs) para leer cada fila
-// (top_nombre, mid_divisor, bot_fechas) según coordenadas reales del PDF
 const READ_BANDS = [
   { nameMin: 143, nameMax: 163, dateMin: 163, dateMax: 179 },
   { nameMin: 175, nameMax: 194, dateMin: 194, dateMax: 210 },
@@ -90,23 +75,27 @@ const READ_BANDS = [
   { nameMin: 738, nameMax: 758, dateMin: 758, dateMax: 774 },
 ];
 
-// Tamaños de fuente
 const FS_NAME = 7.5;
 const FS_DATE = 7.0;
 const FS_NUM  = 8.0;
 const FS_YEAR = 9.0;
-// Ancho máximo de texto por tipo de celda
 const MAX_NAME = 50;
 const MAX_DATE = 36;
 const MAX_NUM  = 28;
 
-// Colores UI
 const GC  = ["#3b82f6","#10b981","#f59e0b","#8b5cf6"];
 const GBG = ["#eff6ff","#f0fdf4","#fffbeb","#f5f3ff"];
 const GHD = ["#1e3a5f","#065f46","#92400e","#4c1d95"];
 
 const DEFAULT_ROWS = 20;
 const STORAGE_KEY  = "s13s_v11";
+
+// Frases que alternan cada 5 territorios completados
+const MILESTONE_PHRASES = [
+  { emoji: "🎉", title: "SIUUUU", sub: "¡Buen trabajo! ¡Seguí así!" },
+  { emoji: "🔥", title: "¡Un crack con tu trabajo!", sub: "¡Sos tremendo! ¡A seguir!" },
+  { emoji: "🙏", title: "¡Jehová y los hermanos seguro van a estar contentos!", sub: "¡Qué bendición tu esfuerzo!" },
+];
 
 // ─────────────────────────────────────────────────────────────────────────────
 const emptyRow = () => ({
@@ -148,9 +137,6 @@ const loadPdfjs = () => new Promise((res,rej) => {
   document.head.appendChild(s);
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// EXTRACCIÓN con bandas Y exactas del PDF real
-// ─────────────────────────────────────────────────────────────────────────────
 const extractPDF = async buf => {
   try {
     const lib = await loadPdfjs();
@@ -165,10 +151,9 @@ const extractPDF = async buf => {
       .map(it => ({
         text: it.str.trim(),
         x:    it.transform[4],
-        y:    pH - it.transform[5],   // y=0 arriba
+        y:    pH - it.transform[5],
       }));
 
-    // Año de servicio (buscar número de 4 dígitos en la zona del encabezado)
     let yearVal = "";
     const yItem = items.find(it =>
       it.y > 50 && it.y < 120 && it.x > 60 && it.x < 300 && /^\d{4}/.test(it.text)
@@ -178,9 +163,7 @@ const extractPDF = async buf => {
     const rows = Array.from({length:DEFAULT_ROWS}, emptyRow);
 
     READ_BANDS.forEach((band, ri) => {
-      // Ítems en la banda de nombre
       items.filter(it => it.y >= band.nameMin && it.y < band.nameMax).forEach(it => {
-        // Para nombres: usar la columna ancha (g1, g2, g3, g4)
         const nameCol = READ_COLS.find(c =>
           (c.key==="num"||c.key==="ultima"||c.key==="g1"||c.key==="g2"||c.key==="g3"||c.key==="g4") &&
           it.x >= c.x0 && it.x < c.x1
@@ -194,9 +177,7 @@ const extractPDF = async buf => {
         if (nameCol.key==="g4")     rows[ri].n4     = it.text;
       });
 
-      // Ítems en la banda de fechas
       items.filter(it => it.y >= band.dateMin && it.y < band.dateMax).forEach(it => {
-        // Para fechas: usar sub-celdas
         const dateCol = READ_COLS.find(c =>
           (c.key==="g1a"||c.key==="g1c"||c.key==="g2a"||c.key==="g2c"||
            c.key==="g3a"||c.key==="g3c"||c.key==="g4a"||c.key==="g4c") &&
@@ -224,6 +205,21 @@ const extractPDF = async buf => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Contar territorios "completados": filas donde al menos una celda "asignó" tiene fecha
+// Un territorio se considera completado cuando c1, c2, c3 o c4 tiene valor
+// ─────────────────────────────────────────────────────────────────────────────
+const countCompleted = (rows) => {
+  let count = 0;
+  rows.forEach(r => {
+    if (r.c1) count++;
+    if (r.c2) count++;
+    if (r.c3) count++;
+    if (r.c4) count++;
+  });
+  return count;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // COMPONENTE
 // ─────────────────────────────────────────────────────────────────────────────
 export default function App() {
@@ -236,13 +232,30 @@ export default function App() {
   const [extracting,setExtracting] = useState(false);
   const [busy,setBusy]             = useState(false);
   const [toast,setToast]           = useState(null);
+  const [milestone,setMilestone]   = useState(null);
   const blobRef = useRef(null);
+  const prevCompletedRef = useRef(0);
+  const milestoneIndexRef = useRef(0);
 
   const showToast=(msg,type="ok")=>{ setToast({msg,type}); setTimeout(()=>setToast(null),4000); };
   const persist=(r,y)=>{ try{localStorage.setItem(STORAGE_KEY,JSON.stringify({rows:r,year:y}));}catch{} };
 
+  // Detectar cuando se completan múltiplos de 5
+  const checkMilestone = (newRows, oldCompleted) => {
+    const newCompleted = countCompleted(newRows);
+    if (newCompleted === oldCompleted) return;
+    const prevMult = Math.floor(oldCompleted / 5);
+    const newMult  = Math.floor(newCompleted / 5);
+    if (newMult > prevMult && newCompleted > 0) {
+      const idx = milestoneIndexRef.current % MILESTONE_PHRASES.length;
+      milestoneIndexRef.current = milestoneIndexRef.current + 1;
+      setMilestone({ ...MILESTONE_PHRASES[idx], count: newCompleted });
+      setTimeout(() => setMilestone(null), 5000);
+    }
+    prevCompletedRef.current = newCompleted;
+  };
+
   const activatePDF = useCallback(async(buf,name,read)=>{
-    // Guardamos una copia independiente de los bytes originales
     const copy = buf.slice(0);
     const u8   = new Uint8Array(copy);
     setOrigBytes(u8); setPdfName(name);
@@ -259,6 +272,7 @@ export default function App() {
     setRows(result.rows);
     setYear(result.year||"");
     persist(result.rows, result.year||"");
+    prevCompletedRef.current = countCompleted(result.rows);
     const f=result.rows.filter(r=>r.num||r.n1||r.n2||r.n3||r.n4||r.a1||r.a2).length;
     showToast(f>0?`✅ ${f} filas cargadas del PDF`:"PDF cargado — formulario vacío, completalo");
   },[]); // eslint-disable-line
@@ -266,7 +280,9 @@ export default function App() {
   useEffect(()=>{
     try{
       const s=localStorage.getItem(STORAGE_KEY);
-      if(s){const d=JSON.parse(s);setRows(d.rows||Array.from({length:DEFAULT_ROWS},emptyRow));setYear(d.year||"");}
+      if(s){const d=JSON.parse(s);setRows(d.rows||Array.from({length:DEFAULT_ROWS},emptyRow));setYear(d.year||"");
+        prevCompletedRef.current = countCompleted(d.rows||[]);
+      }
       else setRows(Array.from({length:DEFAULT_ROWS},emptyRow));
     }catch{setRows(Array.from({length:DEFAULT_ROWS},emptyRow));}
     fetch("/assets/territorios.pdf")
@@ -282,32 +298,39 @@ export default function App() {
   };
 
   const setField=(idx,field,val)=>{
-    setRows(prev=>{const n=prev.map((r,i)=>i===idx?{...r,[field]:val}:r);persist(n,year);return n;});
+    setRows(prev=>{
+      const n=prev.map((r,i)=>i===idx?{...r,[field]:val}:r);
+      persist(n,year);
+      checkMilestone(n, prevCompletedRef.current);
+      return n;
+    });
   };
   const setYr=v=>{setYear(v);persist(rows,v);};
   const addRow=()=>setRows(p=>{const n=[...p,emptyRow()];persist(n,year);return n;});
   const delRow=idx=>{
     if(rows.length<=1)return;
-    setRows(p=>{const n=p.filter((_,i)=>i!==idx);persist(n,year);return n;});
+    setRows(p=>{const n=p.filter((_,i)=>i!==idx);persist(n,year);
+      prevCompletedRef.current = countCompleted(n);
+      return n;
+    });
   };
   const clearAll=()=>{
     if(!window.confirm("¿Limpiar todos los datos?"))return;
     const f=Array.from({length:DEFAULT_ROWS},emptyRow);
-    setRows(f);setYear("");persist(f,"");showToast("Tabla limpiada");
+    setRows(f);setYear("");persist(f,"");
+    prevCompletedRef.current = 0;
+    showToast("Tabla limpiada");
   };
 
-  // ── Generar PDF: siempre desde el original, coordenadas exactas ────────────
   const downloadPDF = async()=>{
     if(!origBytes){showToast("No hay PDF cargado","err");return;}
     setBusy(true);
     try{
-      // Pasamos una copia fresca para que pdf-lib no mute los bytes originales
       const doc  = await PDFDocument.load(origBytes.slice(0),{ignoreEncryption:true});
       const page = doc.getPages()[0];
       const font = await doc.embedFont(StandardFonts.Helvetica);
       const black= rgb(0,0,0);
 
-      // Escribe texto centrado en X, en la Y exacta de la celda
       const write=(text, cx, cy, fs, maxW)=>{
         if(!text||!String(text).trim()) return;
         let t=String(text).trim();
@@ -316,7 +339,6 @@ export default function App() {
         page.drawText(t,{x:cx-tw/2, y:cy-fs/3, size:fs, font, color:black});
       };
 
-      // Año de servicio
       if(year){
         const yw=font.widthOfTextAtSize(year,FS_YEAR);
         page.drawText(year,{x:148-yw/2, y:PDF_H-91, size:FS_YEAR, font, color:black});
@@ -324,18 +346,12 @@ export default function App() {
 
       rows.slice(0,20).forEach((row,i)=>{
         const {name: yN, date: yD} = ROW_Y[i];
-
-        // Número de territorio y última fecha (centrados en la banda nombre)
         write(row.num,    CX.num,    yN, FS_NUM,  MAX_NUM);
         write(row.ultima, CX.ultima, yN, FS_DATE, MAX_DATE);
-
-        // Nombres (celda ancha superior)
         write(row.n1, CX.g1n, yN, FS_NAME, MAX_NAME);
         write(row.n2, CX.g2n, yN, FS_NAME, MAX_NAME);
         write(row.n3, CX.g3n, yN, FS_NAME, MAX_NAME);
         write(row.n4, CX.g4n, yN, FS_NAME, MAX_NAME);
-
-        // Fechas (sub-celdas inferiores)
         write(fmtDate(row.a1), CX.g1a, yD, FS_DATE, MAX_DATE);
         write(fmtDate(row.c1), CX.g1c, yD, FS_DATE, MAX_DATE);
         write(fmtDate(row.a2), CX.g2a, yD, FS_DATE, MAX_DATE);
@@ -436,7 +452,6 @@ export default function App() {
         .td{padding:3px;border-right:1px solid #e2e8f0;vertical-align:middle;}
         .td-g{padding:0;border-right:1px solid #e2e8f0;border-left:3px solid;}
 
-        /* PIRÁMIDE: nombre arriba (ancho completo), fechas abajo (mitad/mitad) */
         .pyr{display:flex;flex-direction:column;width:100%;}
         .pyr-top{width:100%;border-bottom:1px solid #e2e8f0;}
         .pyr-bot{display:grid;grid-template-columns:1fr 1fr;width:100%;}
@@ -455,6 +470,10 @@ export default function App() {
         .dlabel{font-size:8px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
           padding:4px 8px 0;display:block;}
         .i-date{font-size:10.5px;color:#374151;text-align:center;padding:4px 4px 7px;}
+
+        /* Placeholder para fechas: "no se asignó" y "no se completó" */
+        .i-date-asigno::placeholder{color:#f59e0b;font-size:9px;font-style:italic;}
+        .i-date-completo::placeholder{color:#94a3b8;font-size:9px;font-style:italic;}
 
         .btn-del{background:none;border:none;color:#cbd5e1;cursor:pointer;font-size:15px;
           padding:6px;border-radius:5px;transition:all .15s;display:block;width:100%;text-align:center;}
@@ -482,6 +501,66 @@ export default function App() {
           box-shadow:0 4px 20px rgba(0,0,0,.3);z-index:9999;animation:su .2s ease;}
         @keyframes su{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:none;}}
 
+        /* ── MILESTONE ALERT ── */
+        .milestone-overlay{
+          position:fixed;inset:0;z-index:10000;
+          display:flex;align-items:center;justify-content:center;
+          background:rgba(0,0,0,.55);backdrop-filter:blur(6px);
+          animation:mfade .3s ease;
+        }
+        @keyframes mfade{from{opacity:0;}to{opacity:1;}}
+        .milestone-box{
+          background:linear-gradient(135deg,#1e1b4b 0%,#312e81 40%,#4c1d95 70%,#6d28d9 100%);
+          border-radius:24px;padding:48px 52px;text-align:center;
+          box-shadow:0 0 0 3px rgba(167,139,250,.4),0 0 60px rgba(124,58,237,.6),0 32px 64px rgba(0,0,0,.5);
+          max-width:480px;width:90%;
+          animation:mpop .35s cubic-bezier(.34,1.56,.64,1);
+          position:relative;overflow:hidden;
+        }
+        @keyframes mpop{from{transform:scale(.6);opacity:0;}to{transform:scale(1);opacity:1;}}
+        .milestone-box::before{
+          content:'';position:absolute;inset:0;
+          background:radial-gradient(ellipse at 50% 0%,rgba(167,139,250,.25) 0%,transparent 70%);
+          pointer-events:none;
+        }
+        .milestone-emoji{font-size:72px;line-height:1;margin-bottom:16px;display:block;
+          animation:bounce 1s ease infinite alternate;}
+        @keyframes bounce{from{transform:translateY(0);}to{transform:translateY(-12px);}}
+        .milestone-count{
+          font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:700;
+          color:rgba(196,181,253,.7);letter-spacing:.15em;text-transform:uppercase;
+          margin-bottom:12px;
+        }
+        .milestone-title{
+          font-family:'IBM Plex Sans',sans-serif;font-size:32px;font-weight:700;
+          color:#fff;line-height:1.2;margin-bottom:10px;
+          text-shadow:0 0 30px rgba(167,139,250,.8);
+        }
+        .milestone-sub{
+          font-size:16px;color:rgba(196,181,253,.85);font-weight:500;line-height:1.5;
+          margin-bottom:28px;
+        }
+        .milestone-stars{
+          font-size:28px;letter-spacing:6px;margin-bottom:20px;
+          animation:spin-stars 2s linear infinite;
+          display:inline-block;
+        }
+        @keyframes spin-stars{0%{letter-spacing:4px;}50%{letter-spacing:10px;}100%{letter-spacing:4px;}}
+        .milestone-close{
+          background:rgba(167,139,250,.2);border:2px solid rgba(167,139,250,.4);
+          color:rgba(196,181,253,.9);border-radius:12px;padding:10px 32px;
+          font-family:'IBM Plex Sans',inherit;font-size:14px;font-weight:700;
+          cursor:pointer;transition:all .15s;letter-spacing:.04em;
+        }
+        .milestone-close:hover{background:rgba(167,139,250,.35);border-color:rgba(167,139,250,.7);color:#fff;}
+        .milestone-confetti{position:absolute;inset:0;pointer-events:none;overflow:hidden;}
+        .conf-dot{position:absolute;width:8px;height:8px;border-radius:2px;
+          animation:conffall 3s ease-in infinite;}
+        @keyframes conffall{
+          0%{transform:translateY(-20px) rotate(0deg);opacity:1;}
+          100%{transform:translateY(320px) rotate(720deg);opacity:0;}
+        }
+
         @media(max-width:640px){
           .tb{padding:11px 12px;} .tb-t{font-size:13px;}
           .tb-a .btn{padding:8px 11px;font-size:12px;}
@@ -489,6 +568,8 @@ export default function App() {
           .hdr{flex-direction:column;align-items:flex-start;gap:10px;}
           .yr-w{margin-left:0;}
           .btn-big{font-size:14px;padding:13px;}
+          .milestone-box{padding:36px 28px;}
+          .milestone-title{font-size:26px;}
         }
         @media print{.btn,label,.tb{display:none!important;}}
       `}</style>
@@ -584,12 +665,20 @@ export default function App() {
                                 <div className="pyr-bot">
                                   <div className="pyr-bot-l">
                                     <span className="dlabel" style={{color:GC[g-1]}}>Asignó</span>
-                                    <input type="date" className="inp i-date" value={row[`a${g}`]}
+                                    <input
+                                      type="date"
+                                      className="inp i-date i-date-asigno"
+                                      value={row[`a${g}`]}
+                                      placeholder="no se asignó"
                                       onChange={e=>setField(idx,`a${g}`,e.target.value)}/>
                                   </div>
                                   <div>
                                     <span className="dlabel" style={{color:GC[g-1]}}>Completó</span>
-                                    <input type="date" className="inp i-date" value={row[`c${g}`]}
+                                    <input
+                                      type="date"
+                                      className="inp i-date i-date-completo"
+                                      value={row[`c${g}`]}
+                                      placeholder="no se completó"
                                       onChange={e=>setField(idx,`c${g}`,e.target.value)}/>
                                   </div>
                                 </div>
@@ -654,6 +743,34 @@ export default function App() {
         </div>
 
         {toast&&<div className="toast" style={{background:tbg(toast.type)}}>{toast.msg}</div>}
+
+        {/* ── MILESTONE ALERT ── */}
+        {milestone&&(
+          <div className="milestone-overlay" onClick={()=>setMilestone(null)}>
+            <div className="milestone-box" onClick={e=>e.stopPropagation()}>
+              {/* Confetti dots */}
+              <div className="milestone-confetti">
+                {["#f59e0b","#3b82f6","#10b981","#ec4899","#f97316","#8b5cf6","#06b6d4","#facc15"].map((c,i)=>(
+                  <div key={i} className="conf-dot" style={{
+                    background:c,
+                    left:`${10+i*11}%`,
+                    animationDelay:`${i*0.25}s`,
+                    animationDuration:`${2+i*0.2}s`,
+                  }}/>
+                ))}
+              </div>
+              <span className="milestone-emoji">{milestone.emoji}</span>
+              <div className="milestone-count">🏆 {milestone.count} territorios completados</div>
+              <div className="milestone-title">{milestone.title}</div>
+              <div className="milestone-sub">{milestone.sub}</div>
+              <div className="milestone-stars">⭐⭐⭐⭐⭐</div>
+              <br/>
+              <button className="milestone-close" onClick={()=>setMilestone(null)}>
+                ¡Gracias! 🙌
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </>
   );
