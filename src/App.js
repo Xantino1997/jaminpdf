@@ -1,6 +1,36 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 
+// Input de fecha que muestra placeholder visible cuando está vacío
+function DateInput({ value, onChange, placeholder, className }) {
+  const [focused, setFocused] = useState(false);
+  const showDate = focused || !!value;
+  return (
+    <div style={{ position: "relative", width: "100%" }}>
+      {!showDate && (
+        <div style={{
+          position: "absolute", inset: 0,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 9, fontStyle: "italic", pointerEvents: "none",
+          color: placeholder === "no se asignó" ? "#f59e0b" : "#94a3b8",
+          padding: "4px 4px 7px",
+        }}>
+          {placeholder}
+        </div>
+      )}
+      <input
+        type={showDate ? "date" : "text"}
+        className={className}
+        value={value}
+        onChange={onChange}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        style={{ opacity: showDate ? 1 : 0, width: "100%" }}
+      />
+    </div>
+  );
+}
+
 const PDF_H = 842.04;
 
 const CX = {
@@ -93,7 +123,7 @@ const STORAGE_KEY  = "s13s_v11";
 // Frases que alternan cada 5 territorios completados
 const MILESTONE_PHRASES = [
   { emoji: "🎉", title: "SIUUUU", sub: "¡Buen trabajo! ¡Seguí así!" },
-  { emoji: "🔥", title: "¡Un crack con tu trabajo!", sub: "¡Sos tremendo! ¡A seguir!" },
+  { emoji: "🔥", title: "¡Un crack con tu trabajo!", sub: "¡Sos tremendo/a! ¡A seguir!" },
   { emoji: "🙏", title: "¡Jehová y los hermanos seguro van a estar contentos!", sub: "¡Qué bendición tu esfuerzo!" },
 ];
 
@@ -665,18 +695,16 @@ export default function App() {
                                 <div className="pyr-bot">
                                   <div className="pyr-bot-l">
                                     <span className="dlabel" style={{color:GC[g-1]}}>Asignó</span>
-                                    <input
-                                      type="date"
-                                      className="inp i-date i-date-asigno"
+                                    <DateInput
+                                      className="inp i-date"
                                       value={row[`a${g}`]}
                                       placeholder="no se asignó"
                                       onChange={e=>setField(idx,`a${g}`,e.target.value)}/>
                                   </div>
                                   <div>
                                     <span className="dlabel" style={{color:GC[g-1]}}>Completó</span>
-                                    <input
-                                      type="date"
-                                      className="inp i-date i-date-completo"
+                                    <DateInput
+                                      className="inp i-date"
                                       value={row[`c${g}`]}
                                       placeholder="no se completó"
                                       onChange={e=>setField(idx,`c${g}`,e.target.value)}/>
