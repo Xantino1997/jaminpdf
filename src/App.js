@@ -1,31 +1,43 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 
-// Input de fecha que muestra placeholder visible cuando está vacío
+// Input de fecha compatible con Safari iOS
+// - Siempre type="date" (nunca cambia dinámicamente)
+// - Nunca opacity < 1 (Safari iOS no dispara el picker con opacity:0)
+// - Placeholder visual con div superpuesto + color:transparent en input vacío
 function DateInput({ value, onChange, placeholder, className }) {
-  const [focused, setFocused] = useState(false);
-  const showDate = focused || !!value;
+  const isUnassigned = placeholder === "no se asignó";
   return (
     <div style={{ position: "relative", width: "100%" }}>
-      {!showDate && (
+      {!value && (
         <div style={{
           position: "absolute", inset: 0,
           display: "flex", alignItems: "center", justifyContent: "center",
           fontSize: 9, fontStyle: "italic", pointerEvents: "none",
-          color: placeholder === "no se asignó" ? "#f59e0b" : "#94a3b8",
+          color: isUnassigned ? "#f59e0b" : "#94a3b8",
           padding: "4px 4px 7px",
+          zIndex: 1,
         }}>
           {placeholder}
         </div>
       )}
       <input
-        type={showDate ? "date" : "text"}
+        type="date"
         className={className}
-        value={value}
+        value={value || ""}
         onChange={onChange}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        style={{ opacity: showDate ? 1 : 0, width: "100%" }}
+        style={{
+          width: "100%",
+          // Texto transparente cuando vacío → se ve el placeholder div
+          // Texto normal cuando tiene valor
+          color: value ? undefined : "transparent",
+          // NUNCA opacity < 1: Safari iOS ignora taps en inputs con opacity:0
+          opacity: 1,
+          WebkitAppearance: "none",
+          position: "relative",
+          zIndex: 2,
+          background: "transparent",
+        }}
       />
     </div>
   );
@@ -120,7 +132,6 @@ const GHD = ["#1e3a5f","#065f46","#92400e","#4c1d95"];
 const DEFAULT_ROWS = 20;
 const STORAGE_KEY  = "s13s_v11";
 
-// Frases que alternan cada 5 territorios completados
 const MILESTONE_PHRASES = [
   { emoji: "🎉", title: "SIUUUU", sub: "¡Buen trabajo! ¡Seguí así!" },
   { emoji: "🔥", title: "¡Un crack con tu trabajo!", sub: "¡Sos tremendo/a! ¡A seguir!" },
@@ -235,9 +246,6 @@ const extractPDF = async buf => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Contar territorios "completados": filas donde al menos una celda "asignó" tiene fecha
-// Un territorio se considera completado cuando c1, c2, c3 o c4 tiene valor
-// ─────────────────────────────────────────────────────────────────────────────
 const countCompleted = (rows) => {
   let count = 0;
   rows.forEach(r => {
@@ -250,7 +258,7 @@ const countCompleted = (rows) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// COMPONENTE
+// COMPONENTE PRINCIPAL
 // ─────────────────────────────────────────────────────────────────────────────
 export default function App() {
   const [rows,setRows]             = useState([]);
@@ -270,7 +278,6 @@ export default function App() {
   const showToast=(msg,type="ok")=>{ setToast({msg,type}); setTimeout(()=>setToast(null),4000); };
   const persist=(r,y)=>{ try{localStorage.setItem(STORAGE_KEY,JSON.stringify({rows:r,year:y}));}catch{} };
 
-  // Detectar cuando se completan múltiplos de 5
   const checkMilestone = (newRows, oldCompleted) => {
     const newCompleted = countCompleted(newRows);
     if (newCompleted === oldCompleted) return;
@@ -499,11 +506,34 @@ export default function App() {
         .i-name::placeholder{color:#b0bec5;font-weight:400;font-size:13px;}
         .dlabel{font-size:8px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
           padding:4px 8px 0;display:block;}
-        .i-date{font-size:10.5px;color:#374151;text-align:center;padding:4px 4px 7px;}
 
-        /* Placeholder para fechas: "no se asignó" y "no se completó" */
-        .i-date-asigno::placeholder{color:#f59e0b;font-size:9px;font-style:italic;}
-        .i-date-completo::placeholder{color:#94a3b8;font-size:9px;font-style:italic;}
+        /* ── FECHA INPUT — fix Safari iOS ── */
+        /* Siempre type=date, nunca opacity<1 */
+        .i-date{
+          font-size:10.5px;color:#374151;text-align:center;padding:4px 4px 7px;
+          /* Área mínima táctil para iOS */
+          min-height:32px;
+          /* Safari necesita esto para mostrar el picker nativo */
+          -webkit-appearance: none;
+          cursor: pointer;
+        }
+        /* Oculta el texto nativo "dd/mm/aaaa" cuando no hay valor (mostramos nuestro placeholder div) */
+        .i-date[value=""]::-webkit-datetime-edit,
+        .i-date:not([value])::-webkit-datetime-edit {
+          color: transparent;
+        }
+        /* Muestra el texto normal cuando hay valor */
+        .i-date:not([value=""])::-webkit-datetime-edit {
+          color: #374151;
+        }
+        /* En algunos Safari, el ícono de calendario puede quedar visible — lo dejamos */
+        .i-date::-webkit-calendar-picker-indicator {
+          opacity: 0.5;
+          cursor: pointer;
+          /* Agrandamos el área del ícono para facilitar el tap en mobile */
+          padding: 4px;
+          margin: -4px;
+        }
 
         .btn-del{background:none;border:none;color:#cbd5e1;cursor:pointer;font-size:15px;
           padding:6px;border-radius:5px;transition:all .15s;display:block;width:100%;text-align:center;}
@@ -600,6 +630,12 @@ export default function App() {
           .btn-big{font-size:14px;padding:13px;}
           .milestone-box{padding:36px 28px;}
           .milestone-title{font-size:26px;}
+          /* En mobile, el ícono del calendario ocupa más espacio para ser más fácil de tocar */
+          .i-date::-webkit-calendar-picker-indicator {
+            padding: 6px;
+            margin: -6px;
+            opacity: 0.7;
+          }
         }
         @media print{.btn,label,.tb{display:none!important;}}
       `}</style>
@@ -776,7 +812,6 @@ export default function App() {
         {milestone&&(
           <div className="milestone-overlay" onClick={()=>setMilestone(null)}>
             <div className="milestone-box" onClick={e=>e.stopPropagation()}>
-              {/* Confetti dots */}
               <div className="milestone-confetti">
                 {["#f59e0b","#3b82f6","#10b981","#ec4899","#f97316","#8b5cf6","#06b6d4","#facc15"].map((c,i)=>(
                   <div key={i} className="conf-dot" style={{
